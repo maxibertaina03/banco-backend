@@ -1,0 +1,1280 @@
+{
+  "info": {
+    "_postman_id": "4f8ef53d-8d1d-4e42-b5a0-7edecf492001",
+    "name": "Banco API",
+    "description": "Coleccion Postman para probar el backend Express del sistema bancario.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api"
+    },
+    {
+      "key": "personaId",
+      "value": "REEMPLAZAR_UUID_PERSONA"
+    },
+    {
+      "key": "rolId",
+      "value": "REEMPLAZAR_UUID_ROL"
+    },
+    {
+      "key": "personaRolId",
+      "value": "REEMPLAZAR_UUID_PERSONA_ROL"
+    },
+    {
+      "key": "usuarioId",
+      "value": "REEMPLAZAR_UUID_USUARIO"
+    },
+    {
+      "key": "tipoCuentaId",
+      "value": "REEMPLAZAR_UUID_TIPO_CUENTA"
+    },
+    {
+      "key": "cuentaId",
+      "value": "REEMPLAZAR_UUID_CUENTA"
+    },
+    {
+      "key": "cuentaDestinoId",
+      "value": "REEMPLAZAR_UUID_CUENTA_DESTINO"
+    },
+    {
+      "key": "tipoTransaccionId",
+      "value": "REEMPLAZAR_UUID_TIPO_TRANSACCION"
+    },
+    {
+      "key": "transaccionId",
+      "value": "REEMPLAZAR_UUID_TRANSACCION"
+    },
+    {
+      "key": "destinatarioId",
+      "value": "REEMPLAZAR_UUID_DESTINATARIO"
+    },
+    {
+      "key": "auditoriaId",
+      "value": "REEMPLAZAR_UUID_AUDITORIA"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Healthcheck",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Personas",
+      "item": [
+        {
+          "name": "Listar personas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/personas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener persona por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/personas/{{personaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas",
+                "{{personaId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear persona",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Juan\",\n  \"apellido\": \"Perez\",\n  \"dni\": \"12345678\",\n  \"email\": \"juan@mail.com\",\n  \"telefono\": \"3511111111\",\n  \"fecha_nacimiento\": \"1990-01-15\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/personas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar persona",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telefono\": \"3512222222\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/personas/{{personaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas",
+                "{{personaId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar persona",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/personas/{{personaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas",
+                "{{personaId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Roles",
+      "item": [
+        {
+          "name": "Listar roles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/roles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "roles"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear rol",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"cliente\",\n  \"descripcion\": \"Rol de cliente bancario\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/roles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "roles"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener rol por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/roles/{{rolId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "roles",
+                "{{rolId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar rol",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"descripcion\": \"Rol de cliente actualizado\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/roles/{{rolId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "roles",
+                "{{rolId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar rol",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/roles/{{rolId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "roles",
+                "{{rolId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Personas Roles",
+      "item": [
+        {
+          "name": "Listar personas_roles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/personas-roles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas-roles"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear persona rol",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"persona_id\": \"{{personaId}}\",\n  \"rol_id\": \"{{rolId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/personas-roles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas-roles"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener persona rol por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/personas-roles/{{personaRolId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas-roles",
+                "{{personaRolId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar persona rol",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rol_id\": \"{{rolId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/personas-roles/{{personaRolId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas-roles",
+                "{{personaRolId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar persona rol",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/personas-roles/{{personaRolId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas-roles",
+                "{{personaRolId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Usuarios",
+      "item": [
+        {
+          "name": "Listar usuarios",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/usuarios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "usuarios"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear usuario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"persona_id\": \"{{personaId}}\",\n  \"clerk_id\": \"clerk_demo_001\",\n  \"activo\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/usuarios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "usuarios"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener usuario por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/usuarios/{{usuarioId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "usuarios",
+                "{{usuarioId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar usuario",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"activo\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/usuarios/{{usuarioId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "usuarios",
+                "{{usuarioId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar usuario",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/usuarios/{{usuarioId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "usuarios",
+                "{{usuarioId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tipos Cuenta",
+      "item": [
+        {
+          "name": "Listar tipos cuenta",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tipos-cuenta",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tipos-cuenta"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear tipo cuenta",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Caja de Ahorro\",\n  \"descripcion\": \"Cuenta de ahorro en pesos\",\n  \"limite_transferencia\": \"500000.00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tipos-cuenta",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tipos-cuenta"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener tipo cuenta por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tipos-cuenta/{{tipoCuentaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tipos-cuenta",
+                "{{tipoCuentaId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar tipo cuenta",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"limite_transferencia\": \"750000.00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tipos-cuenta/{{tipoCuentaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tipos-cuenta",
+                "{{tipoCuentaId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar tipo cuenta",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tipos-cuenta/{{tipoCuentaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tipos-cuenta",
+                "{{tipoCuentaId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cuentas",
+      "item": [
+        {
+          "name": "Listar cuentas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/cuentas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cuentas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear cuenta",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"persona_id\": \"{{personaId}}\",\n  \"tipo_cuenta_id\": \"{{tipoCuentaId}}\",\n  \"numero_cuenta\": \"000123456789\",\n  \"cbu\": \"2850590940090418135201\",\n  \"saldo\": \"100000.00\",\n  \"activa\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/cuentas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cuentas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener cuenta por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/cuentas/{{cuentaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cuentas",
+                "{{cuentaId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar cuenta",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"activa\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/cuentas/{{cuentaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cuentas",
+                "{{cuentaId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar cuenta",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/cuentas/{{cuentaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cuentas",
+                "{{cuentaId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tipos Transaccion",
+      "item": [
+        {
+          "name": "Listar tipos transaccion",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tipos-transaccion",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tipos-transaccion"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear tipo transaccion",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"transferencia\",\n  \"descripcion\": \"Transferencia entre cuentas\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tipos-transaccion",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tipos-transaccion"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener tipo transaccion por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tipos-transaccion/{{tipoTransaccionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tipos-transaccion",
+                "{{tipoTransaccionId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar tipo transaccion",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"descripcion\": \"Transferencia bancaria interna\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tipos-transaccion/{{tipoTransaccionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tipos-transaccion",
+                "{{tipoTransaccionId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar tipo transaccion",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tipos-transaccion/{{tipoTransaccionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tipos-transaccion",
+                "{{tipoTransaccionId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Transacciones",
+      "item": [
+        {
+          "name": "Listar transacciones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/transacciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "transacciones"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear transaccion simple",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipo_transaccion_id\": \"{{tipoTransaccionId}}\",\n  \"cuenta_origen_id\": \"{{cuentaId}}\",\n  \"cuenta_destino_id\": \"{{cuentaDestinoId}}\",\n  \"monto\": \"1500.00\",\n  \"descripcion\": \"Carga manual de transaccion\",\n  \"estado\": \"completada\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/transacciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "transacciones"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Operar transferencia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipo_transaccion_id\": \"{{tipoTransaccionId}}\",\n  \"cuenta_origen_id\": \"{{cuentaId}}\",\n  \"cuenta_destino_id\": \"{{cuentaDestinoId}}\",\n  \"monto\": 1500,\n  \"descripcion\": \"Transferencia entre cuentas\",\n  \"estado\": \"completada\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/transacciones/operar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "transacciones",
+                "operar"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener transaccion por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/transacciones/{{transaccionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "transacciones",
+                "{{transaccionId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar transaccion",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"rechazada\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/transacciones/{{transaccionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "transacciones",
+                "{{transaccionId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar transaccion",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/transacciones/{{transaccionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "transacciones",
+                "{{transaccionId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Destinatarios",
+      "item": [
+        {
+          "name": "Listar destinatarios",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/destinatarios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "destinatarios"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear destinatario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"persona_id\": \"{{personaId}}\",\n  \"alias\": \"Cuenta sueldo\",\n  \"cbu_externo\": \"2850590940090418135202\",\n  \"banco_externo\": \"Banco Externo\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/destinatarios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "destinatarios"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener destinatario por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/destinatarios/{{destinatarioId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "destinatarios",
+                "{{destinatarioId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar destinatario",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"alias\": \"Proveedor actualizado\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/destinatarios/{{destinatarioId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "destinatarios",
+                "{{destinatarioId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar destinatario",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/destinatarios/{{destinatarioId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "destinatarios",
+                "{{destinatarioId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auditoria",
+      "item": [
+        {
+          "name": "Listar auditoria",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auditoria",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auditoria"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear auditoria",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usuario_id\": \"{{usuarioId}}\",\n  \"accion\": \"CREATE\",\n  \"entidad\": \"cuentas\",\n  \"entidad_id\": \"{{cuentaId}}\",\n  \"payload_antes\": null,\n  \"payload_despues\": {\n    \"activa\": true\n  },\n  \"ip_address\": \"127.0.0.1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auditoria",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auditoria"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener auditoria por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auditoria/{{auditoriaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auditoria",
+                "{{auditoriaId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar auditoria",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accion\": \"UPDATE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auditoria/{{auditoriaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auditoria",
+                "{{auditoriaId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar auditoria",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auditoria/{{auditoriaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auditoria",
+                "{{auditoriaId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Relaciones",
+      "item": [
+        {
+          "name": "Persona full",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/personas/{{personaId}}/full",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas",
+                "{{personaId}}",
+                "full"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Persona cuentas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/personas/{{personaId}}/cuentas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas",
+                "{{personaId}}",
+                "cuentas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Persona roles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/personas/{{personaId}}/roles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas",
+                "{{personaId}}",
+                "roles"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Persona destinatarios",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/personas/{{personaId}}/destinatarios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas",
+                "{{personaId}}",
+                "destinatarios"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cuenta transacciones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/cuentas/{{cuentaId}}/transacciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cuentas",
+                "{{cuentaId}}",
+                "transacciones"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Usuario auditoria",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/usuarios/{{usuarioId}}/auditoria",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "usuarios",
+                "{{usuarioId}}",
+                "auditoria"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
