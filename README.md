@@ -29,6 +29,19 @@ Variables:
 - `PORT`: puerto del backend
 - `DATABASE_URL`: conexión a PostgreSQL o Supabase
 
+## Base de datos
+
+Antes de iniciar la API, la base debe tener el esquema cargado.
+
+Ejemplo con `psql`:
+
+```bash
+psql "$DATABASE_URL" -f schema.sql
+psql "$DATABASE_URL" -f seed.sql
+```
+
+`seed.sql` es opcional y sirve para cargar datos de prueba.
+
 ## Scripts
 
 ```bash
