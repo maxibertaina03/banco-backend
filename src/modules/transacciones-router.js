@@ -6,6 +6,7 @@ const asyncHandler = require('../utils/async-handler');
 const HttpError = require('../utils/http-error');
 const { uuidLike } = require('../utils/schemas');
 const { isInternalUser } = require('../utils/access-control');
+const { writeAuditLog } = require('../utils/audit');
 
 const router = express.Router();
 
@@ -163,6 +164,15 @@ router.post(
         RETURNING *`,
         [tipo_transaccion_id, cuenta_origen_id, cuenta_destino_id, monto, descripcion, estado]
       );
+
+      await writeAuditLog(client, {
+        usuarioId: req.currentUser?.id,
+        accion: 'CREATE',
+        entidad: 'transacciones',
+        entidadId: created.rows[0].id,
+        payloadDespues: created.rows[0],
+        ipAddress: req.ip || null,
+      });
 
       await client.query('COMMIT');
       res.status(201).json(created.rows[0]);

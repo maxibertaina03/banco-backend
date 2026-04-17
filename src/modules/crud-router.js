@@ -4,6 +4,7 @@ const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
 const crudService = require('./crud-service');
 const { uuidLike } = require('../utils/schemas');
+const { buildAuditContext } = require('../utils/audit');
 
 const paramsSchema = z.object({
   id: uuidLike,
@@ -42,7 +43,7 @@ function createCrudRouter(entityConfig) {
     ...createAccess,
     validate(entityConfig.createSchema),
     asyncHandler(async (req, res) => {
-      const created = await crudService.create(entityConfig, req.body);
+      const created = await crudService.create(entityConfig, req.body, buildAuditContext(req));
       res.status(201).json(created);
     })
   );
@@ -53,7 +54,7 @@ function createCrudRouter(entityConfig) {
     validate(paramsSchema, 'params'),
     validate(entityConfig.updateSchema),
     asyncHandler(async (req, res) => {
-      const updated = await crudService.update(entityConfig, req.params.id, req.body);
+      const updated = await crudService.update(entityConfig, req.params.id, req.body, buildAuditContext(req));
       res.json(updated);
     })
   );
@@ -63,7 +64,7 @@ function createCrudRouter(entityConfig) {
     ...deleteAccess,
     validate(paramsSchema, 'params'),
     asyncHandler(async (req, res) => {
-      const deleted = await crudService.remove(entityConfig, req.params.id);
+      const deleted = await crudService.remove(entityConfig, req.params.id, buildAuditContext(req));
       res.json({
         message: 'Registro eliminado correctamente.',
         data: deleted,
