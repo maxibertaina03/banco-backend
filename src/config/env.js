@@ -3,7 +3,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const env = {
-  port: Number(process.env.PORT || 3000),
+  port: Number(process.env.PORT || 3001),
   databaseUrl: process.env.DATABASE_URL,
   clerkSecretKey: process.env.CLERK_SECRET_KEY,
 };

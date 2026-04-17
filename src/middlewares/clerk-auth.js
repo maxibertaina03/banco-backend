@@ -18,7 +18,10 @@ async function clerkAuth(req, res, next) {
       secretKey: env.clerkSecretKey,
     });
 
-    req.auth = decoded;
+    req.auth = {
+      ...decoded,
+      userId: extractClerkUserId(decoded),
+    };
     next();
   } catch (error) {
     return next(new HttpError(401, 'Token inválido o expirado.'));
@@ -41,7 +44,10 @@ async function optionalClerkAuth(req, res, next) {
       secretKey: env.clerkSecretKey,
     });
 
-    req.auth = decoded;
+    req.auth = {
+      ...decoded,
+      userId: extractClerkUserId(decoded),
+    };
     next();
   } catch (error) {
     // No hay error si el token es inválido, simplemente continuamos sin autenticación
@@ -62,8 +68,13 @@ function extractToken(req) {
   return parts[1];
 }
 
+function extractClerkUserId(auth) {
+  return auth?.sub || auth?.userId || auth?.clerk_id || null;
+}
+
 module.exports = {
   clerkAuth,
   optionalClerkAuth,
   extractToken,
+  extractClerkUserId,
 };

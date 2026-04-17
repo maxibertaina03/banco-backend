@@ -6,7 +6,10 @@
   "type": "commonjs",
   "scripts": {
     "dev": "node --watch src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "clerk:export": "node scripts/export-users-csv.js",
+    "clerk:import": "node scripts/import-clerk-csv.js",
+    "clerk:reconcile": "node scripts/reconcile-clerk-users.js"
   },
   "keywords": [
     "express",
@@ -18,6 +21,7 @@
   "license": "ISC",
   "dependencies": {
     "@clerk/express": "^2.1.4",
+    "axios": "^1.15.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",

@@ -2,9 +2,10 @@ const express = require('express');
 const { z } = require('zod');
 const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
-const { clerkAuth } = require('../middlewares/clerk-auth');
+const { clerkAuth, optionalClerkAuth, extractClerkUserId } = require('../middlewares/clerk-auth');
 const authService = require('./auth-service');
 const { uuidLike } = require('../utils/schemas');
+const HttpError = require('../utils/http-error');
 
 const router = express.Router();
 
@@ -17,10 +18,10 @@ router.post(
   '/login',
   clerkAuth,
   asyncHandler(async (req, res) => {
-    const { clerk_id } = req.auth;
+    const clerkId = extractClerkUserId(req.auth);
 
     // Obtener o crear usuario en BD
-    const user = await authService.getOrCreateUser(clerk_id);
+    const user = await authService.getOrCreateUser(clerkId);
 
     res.json({
       message: 'Login exitoso.',
@@ -44,16 +45,27 @@ router.post(
  */
 router.post(
   '/register',
+  optionalClerkAuth,
   validate(
     z.object({
       persona_id: uuidLike,
-      clerk_id: z.string().trim().min(1),
+      clerk_id: z.string().trim().min(1).optional(),
     })
   ),
   asyncHandler(async (req, res) => {
-    const { persona_id, clerk_id } = req.body;
+    const { persona_id, clerk_id: clerkIdFromBody } = req.body;
+    const clerkIdFromToken = extractClerkUserId(req.auth);
+    const clerkId = clerkIdFromToken || clerkIdFromBody;
 
-    const user = await authService.createUserWithClerk(persona_id, clerk_id);
+    if (clerkIdFromBody && clerkIdFromToken && clerkIdFromBody !== clerkIdFromToken) {
+      throw new HttpError(400, 'El clerk_id enviado no coincide con el usuario autenticado.');
+    }
+
+    if (!clerkId) {
+      throw new HttpError(400, 'Debes enviar clerk_id o autenticarte con un token válido de Clerk.');
+    }
+
+    const user = await authService.createUserWithClerk(persona_id, clerkId);
 
     res.status(201).json({
       message: 'Usuario registrado exitosamente.',
@@ -71,9 +83,9 @@ router.get(
   '/profile',
   clerkAuth,
   asyncHandler(async (req, res) => {
-    const { clerk_id } = req.auth;
+    const clerkId = extractClerkUserId(req.auth);
 
-    const profile = await authService.getUserProfile(clerk_id);
+    const profile = await authService.getUserProfile(clerkId);
 
     res.json({
       message: 'Perfil obtenido.',
@@ -91,12 +103,47 @@ router.post(
   '/logout',
   clerkAuth,
   asyncHandler(async (req, res) => {
-    const { clerk_id } = req.auth;
+    const clerkId = extractClerkUserId(req.auth);
 
-    await authService.deactivateUser(clerk_id);
+    await authService.deactivateUser(clerkId);
 
     res.json({
       message: 'Logout exitoso.',
+    });
+  })
+);
+
+/**
+ * POST /auth/login-custom
+ * Login personalizado con email, DNI o username (nombre_apellido)
+ * Body: { identifier: "email@test.com" | "12345678" | "Juan_Perez" }
+ */
+router.post(
+  '/login-custom',
+  validate(
+    z.object({
+      identifier: z.string().trim().min(1),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { identifier } = req.body;
+
+    const user = await authService.loginWithIdentifier(identifier);
+
+    res.json({
+      message: 'Login exitoso.',
+      user: {
+        id: user.id,
+        persona_id: user.persona_id,
+        clerk_id: user.clerk_id,
+        nombre: user.nombre,
+        apellido: user.apellido,
+        email: user.email,
+        dni: user.dni,
+        telefono: user.telefono,
+        activo: user.activo,
+        roles: user.roles,
+      },
     });
   })
 );
