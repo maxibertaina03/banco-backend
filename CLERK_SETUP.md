@@ -1,54 +1,84 @@
 # Guía de Integración Clerk - Banco API
 
-## ¿Qué se agregó?
+## Estado actual
 
-Se integró **Clerk** como sistema de autenticación. Ahora puedes:
-1. Registrar usuarios enlazando una persona existente con su Clerk ID
-2. Loguearse con token JWT de Clerk
-3. Obtener el perfil del usuario autenticado
-4. Desloguearse
+La integración ya permite:
+1. Crear usuarios en Clerk a partir de la base local
+2. Reconciliar `clerk_id` en la tabla `usuarios`
+3. Autenticar requests del backend con JWT de Clerk
+4. Obtener el perfil local usando el usuario autenticado de Clerk
+5. Resolver el usuario autenticado desde el claim `sub` del token
 
-## Instalación y Configuración
+## Variables de entorno
 
-### 1. Instalar Clerk (ya hecho)
-```bash
-npm install @clerk/express
-```
-
-### 2. Obtener Clerk Secret Key
-- Ve a [dashboard.clerk.com](https://dashboard.clerk.com)
-- Crea una aplicación
-- En "API Keys", copia el **Secret Key**
-- Agrégala al archivo `.env`:
+Archivo `.env` del backend:
 
 ```env
-CLERK_SECRET_KEY=sk_test_xxxxxxxxxxxxx
+PORT=3001
 DATABASE_URL=postgresql://...
-PORT=3000
+CLERK_SECRET_KEY=sk_test_...
 ```
 
-### 3. La estructura ahora es:
+## Flujo real de migración usado
 
+### 1. Normalizar datos en la base
+
+Antes de importar, los usuarios deben tener datos compatibles con Clerk:
+- email válido
+- username compatible
+- estrategia de autenticación coherente con la instancia
+
+### 2. Exportar usuarios desde PostgreSQL
+
+```bash
+npm run clerk:export
 ```
-PERSONAS (usuarios del sistema)
-   ↓
-USUARIOS (enlace con Clerk)
-   ├── persona_id → PERSONAS
-   ├── clerk_id → Token de Clerk
-   └── activo → Boolean
-   
-AUDITORIA (registra acciones)
-   └── usuario_id → USUARIOS
+
+Genera:
+
+```text
+usuarios-para-clerk.csv
+```
+
+### 3. Importar usuarios en Clerk por API
+
+```bash
+npm run clerk:import
+```
+
+Este paso crea los usuarios directamente en Clerk usando la Backend API.
+
+### 4. Reconciliar `clerk_id` en la base local
+
+```bash
+npm run clerk:reconcile
+```
+
+Esto busca usuarios en Clerk por email y actualiza la tabla `usuarios`.
+
+## Estructura de datos
+
+```text
+PERSONAS
+  └── datos personales base
+
+USUARIOS
+  ├── persona_id
+  ├── clerk_id
+  └── activo
+
+AUDITORIA
+  └── usuario_id
 ```
 
 ## Endpoints de Autenticación
 
 ### POST /auth/login
-**Autentica al usuario y sincroniza con BD.**
+**Autentica al usuario contra Clerk y devuelve el usuario local vinculado.**
 
 Requiere: Header `Authorization: Bearer <token_clerk>`
 
-Respuesta (201):
+Respuesta (200):
 ```json
 {
   "message": "Login exitoso.",
@@ -65,13 +95,14 @@ Respuesta (201):
 ```
 
 ### POST /auth/register
-**Vincula una persona existente con su Clerk ID.**
+**Vincula una persona existente con el usuario autenticado en Clerk.**
+
+Requiere: Header `Authorization: Bearer <token_clerk>`
 
 Body (JSON):
 ```json
 {
-  "persona_id": "550e8400-e29b-41d4-a716-446655440000",
-  "clerk_id": "user_xxx"
+  "persona_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
@@ -119,7 +150,7 @@ Respuesta (200):
 ```
 
 ### POST /auth/logout
-**Desactiva la sesión del usuario.**
+**Desactiva localmente el usuario.**
 
 Requiere: Header `Authorization: Bearer <token_clerk>`
 
@@ -130,69 +161,22 @@ Respuesta (200):
 }
 ```
 
-## Flujo de Uso en el Frontend
+## Flujo real del frontend
 
-### 1. Registrar persona primero (sin autenticación)
-```javascript
-// POST /api/personas
-const persona = await fetch('http://localhost:3000/api/personas', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    nombre: 'Juan',
-    apellido: 'Pérez',
-    dni: '12345678',
-    email: 'juan@ejemplo.com',
-    telefono: '555-1234'
-  })
-});
-const { id: persona_id } = await persona.json();
-```
+### 1. El usuario inicia sesión en Clerk
 
-### 2. Usuario se loguea con Clerk
-```javascript
-// En tu frontend con Clerk JS:
-const session = await clerk.session();
-const token = await session.getToken();
-```
+Se probó correctamente con:
+- `username + password`
 
-### 3. Registrar usuario en la BD
-```javascript
-// POST /auth/register
-const usuario = await fetch('http://localhost:3000/auth/register', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    persona_id: '550e8400-e29b-41d4-a716-446655440000',
-    clerk_id: session.user.id
-  })
-});
-```
+### 2. Next.js obtiene la sesión y el token
 
-### 4. Loguearse en la API
-```javascript
-// POST /auth/login
-const login = await fetch('http://localhost:3000/auth/login', {
-  method: 'POST',
-  headers: {
-    'Authorization': `Bearer ${token}`,
-    'Content-Type': 'application/json'
-  }
-});
-const { user } = await login.json();
-```
+El route handler del frontend consulta:
+- datos del usuario en Clerk
+- perfil local en el backend
 
-### 5. Usar token en peticiones autenticadas
-```javascript
-// Ahora el usuario puede hacer peticiones a /api/...
-// Puedes adjuntar el usuario_id a las peticiones para auditoria
+### 3. El backend resuelve el usuario autenticado
 
-const cuentas = await fetch('http://localhost:3000/api/cuentas', {
-  headers: {
-    'Authorization': `Bearer ${token}`
-  }
-});
-```
+El backend toma el identificador real desde el claim `sub` del token de Clerk y busca ese `clerk_id` en `usuarios`.
 
 ## Arquitectura de Autenticación
 
@@ -209,7 +193,7 @@ const cuentas = await fetch('http://localhost:3000/api/cuentas', {
 │     Backend (Express + Clerk)       │
 │  - Middleware: clerkAuth            │
 │  - Verifica token JWT               │
-│  - Adjunta req.auth (clerk_id)      │
+│  - Adjunta req.auth (userId/sub)    │
 └────────────┬────────────────────────┘
              │ usa clerk_id
              ↓
@@ -226,17 +210,29 @@ const cuentas = await fetch('http://localhost:3000/api/cuentas', {
 Si quieres que un endpoint requiera autenticación, simplemente agrega el middleware:
 
 ```javascript
-const { clerkAuth } = require('../middlewares/clerk-auth');
+const { clerkAuth, extractClerkUserId } = require('../middlewares/clerk-auth');
 
 router.get('/mi-ruta-protegida',
   clerkAuth,  // ← Este middleware verifica el token
   asyncHandler(async (req, res) => {
-    // req.auth contiene { clerk_id, ... }
-    const clerkId = req.auth.clerk_id;
+    // req.auth contiene el token decodificado y req.auth.userId
+    const clerkId = extractClerkUserId(req.auth);
     res.json({ message: 'datos privados' });
   })
 );
 ```
+
+## Estado observado en la UI
+
+- el login con Clerk ya funciona en el frontend
+- el dashboard muestra el usuario autenticado de Clerk
+- el route handler del frontend intenta consultar el backend en este orden:
+  - `BACKEND_API_URL`
+  - `NEXT_PUBLIC_API_URL`
+  - `http://localhost:3001`
+  - `http://localhost:3000`
+
+Esto reduce errores locales cuando frontend y backend quedan levantados en puertos distintos.
 
 ## Auditoría
 
@@ -255,31 +251,31 @@ await pool.query(
 
 ### 1. Login
 ```
-POST http://localhost:3000/auth/login
+POST http://localhost:3001/auth/login
 Authorization: Bearer <token_de_clerk>
 Content-Type: application/json
 ```
 
 ### 2. Register
 ```
-POST http://localhost:3000/auth/register
+POST http://localhost:3001/auth/register
+Authorization: Bearer <token_de_clerk>
 Content-Type: application/json
 
 {
-  "persona_id": "550e8400-e29b-41d4-a716-446655440000",
-  "clerk_id": "user_123456"
+  "persona_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
 ### 3. Profile
 ```
-GET http://localhost:3000/auth/profile
+GET http://localhost:3001/auth/profile
 Authorization: Bearer <token_de_clerk>
 ```
 
 ### 4. Logout
 ```
-POST http://localhost:3000/auth/logout
+POST http://localhost:3001/auth/logout
 Authorization: Bearer <token_de_clerk>
 ```
 
@@ -289,14 +285,15 @@ Authorization: Bearer <token_de_clerk>
 |-------|-------|----------|
 | `Token no proporcionado` | Falta header Authorization | Agrega `Authorization: Bearer <token>` |
 | `Token inválido o expirado` | Token de Clerk inválido/vencido | Obtén un nuevo token de Clerk |
-| `Usuario no encontrado` | No existe usuario con ese clerk_id | Primero registra con `/auth/register` |
+| `Usuario no encontrado` | No existe usuario con ese `clerk_id` en tabla `usuarios` | Ejecutar reconciliación o vincular usuario |
 | `No existe la persona` | El persona_id no existe | Crea una persona primero con `POST /api/personas` |
 | `CLERK_SECRET_KEY falta` | Variable de entorno no configurada | Agrega `CLERK_SECRET_KEY` al `.env` |
 
 ---
 
-**Próximos pasos recomendados:**
-1. Configurar auditoria automática para cada cambio
-2. Agregar roles y permisos (ya están en la BD)
-3. Proteger endpoints según el rol del usuario
-4. Integrar con frontend en Clerk
+## Próximos pasos recomendados
+
+1. Reemplazar el `logout` local por un flujo de cierre de sesión real de Clerk
+2. Proteger rutas del API por rol
+3. Eliminar credenciales expuestas y rotar claves
+4. Agregar una guía de reseteo de password para usuarios migrados

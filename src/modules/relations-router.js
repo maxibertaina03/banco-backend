@@ -5,6 +5,7 @@ const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
 const HttpError = require('../utils/http-error');
 const { uuidLike } = require('../utils/schemas');
+const { hasAnyRole, isInternalUser } = require('../utils/access-control');
 
 const router = express.Router();
 
@@ -12,11 +13,52 @@ const paramsSchema = z.object({
   id: uuidLike,
 });
 
+function assertCanAccessPersona(req, personaId) {
+  if (isInternalUser(req.currentUser) || req.currentUser.persona_id === personaId) {
+    return;
+  }
+
+  throw new HttpError(403, 'No tienes permisos para acceder a los datos de otra persona.');
+}
+
+async function assertCanAccessCuenta(req, cuentaId) {
+  if (isInternalUser(req.currentUser)) {
+    return;
+  }
+
+  const result = await pool.query('SELECT persona_id FROM cuentas WHERE id = $1', [cuentaId]);
+
+  if (result.rowCount === 0) {
+    throw new HttpError(404, `No existe la cuenta con id ${cuentaId}.`);
+  }
+
+  if (result.rows[0].persona_id !== req.currentUser.persona_id) {
+    throw new HttpError(403, 'No tienes permisos para acceder a esa cuenta.');
+  }
+}
+
+async function assertCanAccessUsuarioAuditoria(req, userId) {
+  if (hasAnyRole(req.currentUser, ['admin', 'auditor'])) {
+    return;
+  }
+
+  const result = await pool.query('SELECT persona_id FROM usuarios WHERE id = $1', [userId]);
+
+  if (result.rowCount === 0) {
+    throw new HttpError(404, `No existe el usuario con id ${userId}.`);
+  }
+
+  if (result.rows[0].persona_id !== req.currentUser.persona_id) {
+    throw new HttpError(403, 'No tienes permisos para consultar la auditoría de otro usuario.');
+  }
+}
+
 router.get(
   '/personas/:id/full',
   validate(paramsSchema, 'params'),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
+    assertCanAccessPersona(req, id);
 
     const personaResult = await pool.query('SELECT * FROM personas WHERE id = $1', [id]);
     if (personaResult.rowCount === 0) {
@@ -58,6 +100,8 @@ router.get(
   '/personas/:id/cuentas',
   validate(paramsSchema, 'params'),
   asyncHandler(async (req, res) => {
+    assertCanAccessPersona(req, req.params.id);
+
     const result = await pool.query(
       `SELECT c.*, tc.nombre AS tipo_cuenta_nombre
        FROM cuentas c
@@ -75,6 +119,8 @@ router.get(
   '/personas/:id/roles',
   validate(paramsSchema, 'params'),
   asyncHandler(async (req, res) => {
+    assertCanAccessPersona(req, req.params.id);
+
     const result = await pool.query(
       `SELECT r.*, pr.id AS persona_rol_id, pr.asignado_at
        FROM personas_roles pr
@@ -92,6 +138,8 @@ router.get(
   '/personas/:id/destinatarios',
   validate(paramsSchema, 'params'),
   asyncHandler(async (req, res) => {
+    assertCanAccessPersona(req, req.params.id);
+
     const result = await pool.query(
       'SELECT * FROM destinatarios WHERE persona_id = $1 ORDER BY created_at DESC',
       [req.params.id]
@@ -105,6 +153,8 @@ router.get(
   '/cuentas/:id/transacciones',
   validate(paramsSchema, 'params'),
   asyncHandler(async (req, res) => {
+    await assertCanAccessCuenta(req, req.params.id);
+
     const result = await pool.query(
       `SELECT t.*,
               tt.nombre AS tipo_transaccion_nombre,
@@ -127,6 +177,8 @@ router.get(
   '/usuarios/:id/auditoria',
   validate(paramsSchema, 'params'),
   asyncHandler(async (req, res) => {
+    await assertCanAccessUsuarioAuditoria(req, req.params.id);
+
     const result = await pool.query(
       'SELECT * FROM auditoria WHERE usuario_id = $1 ORDER BY created_at DESC',
       [req.params.id]

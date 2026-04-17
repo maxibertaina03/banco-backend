@@ -60,7 +60,15 @@ npm start
 La API queda expuesta bajo:
 
 ```text
-http://localhost:3000/api
+http://localhost:3001/api
 ```
+
+`GET /api/health` queda público.
+
+El resto de `/api` requiere:
+
+- token `Bearer` válido de Clerk
+- usuario enlazado en la tabla `usuarios`
+- usuario marcado como `activo = true`
 
 Incluye CRUD para las entidades principales, endpoints de relaciones y operaciones transaccionales bancarias.

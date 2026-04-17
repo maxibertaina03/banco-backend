@@ -6,13 +6,6 @@ const transaccionesRouter = require('../modules/transacciones-router');
 
 const router = express.Router();
 
-router.get('/health', (_req, res) => {
-  res.json({
-    ok: true,
-    service: 'banco-backend',
-  });
-});
-
 router.use('/personas', createCrudRouter(entities.personas));
 router.use('/roles', createCrudRouter(entities.roles));
 router.use('/personas-roles', createCrudRouter(entities.personas_roles));

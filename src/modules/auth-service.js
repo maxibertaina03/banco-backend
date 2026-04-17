@@ -7,7 +7,10 @@ const HttpError = require('../utils/http-error');
  */
 async function getOrCreateUser(clerkId) {
   const result = await pool.query(
-    'SELECT u.*, p.nombre, p.apellido, p.email FROM usuarios u JOIN personas p ON u.persona_id = p.id WHERE u.clerk_id = $1',
+    `SELECT u.*, p.nombre, p.apellido, p.email
+     FROM usuarios u
+     JOIN personas p ON u.persona_id = p.id
+     WHERE u.clerk_id = $1 AND u.activo = true`,
     [clerkId]
   );
 
@@ -15,7 +18,7 @@ async function getOrCreateUser(clerkId) {
     return result.rows[0];
   }
 
-  throw new HttpError(404, 'Usuario no encontrado. Debes registrarte primero con tu persona.');
+  throw new HttpError(404, 'Usuario no encontrado o inactivo. Debes registrarte primero con tu persona.');
 }
 
 /**
@@ -119,64 +122,9 @@ async function deactivateUser(clerkId) {
   return result.rows[0];
 }
 
-/**
- * Login personalizado: busca por email, DNI o username (nombre_apellido)
- * Retorna los datos del usuario autenticado
- */
-async function loginWithIdentifier(identifier) {
-  // Buscar por email
-  let result = await pool.query(
-    `SELECT u.*, p.nombre, p.apellido, p.dni, p.email, p.telefono, p.fecha_nacimiento
-     FROM usuarios u
-     JOIN personas p ON u.persona_id = p.id
-     WHERE p.email = $1 AND u.activo = true`,
-    [identifier]
-  );
-
-  // Buscar por DNI si no encontró por email
-  if (result.rowCount === 0) {
-    result = await pool.query(
-      `SELECT u.*, p.nombre, p.apellido, p.dni, p.email, p.telefono, p.fecha_nacimiento
-       FROM usuarios u
-       JOIN personas p ON u.persona_id = p.id
-       WHERE p.dni = $1 AND u.activo = true`,
-      [identifier]
-    );
-  }
-
-  // Buscar por username (nombre_apellido)
-  if (result.rowCount === 0) {
-    result = await pool.query(
-      `SELECT u.*, p.nombre, p.apellido, p.dni, p.email, p.telefono, p.fecha_nacimiento
-       FROM usuarios u
-       JOIN personas p ON u.persona_id = p.id
-       WHERE LOWER(CONCAT(p.nombre, '_', p.apellido)) = LOWER($1) AND u.activo = true`,
-      [identifier]
-    );
-  }
-
-  if (result.rowCount === 0) {
-    throw new HttpError(401, 'Email, DNI o usuario no válido.');
-  }
-
-  const user = result.rows[0];
-
-  // Obtener roles
-  const rolesResult = await pool.query(
-    `SELECT r.* FROM personas_roles pr
-     JOIN roles r ON r.id = pr.rol_id
-     WHERE pr.persona_id = $1`,
-    [user.persona_id]
-  );
-
-  user.roles = rolesResult.rows;
-  return user;
-}
-
 module.exports = {
   getOrCreateUser,
   createUserWithClerk,
   getUserProfile,
   deactivateUser,
-  loginWithIdentifier,
 };

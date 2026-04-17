@@ -29,33 +29,6 @@ async function clerkAuth(req, res, next) {
 }
 
 /**
- * Middleware opcional que adjunta datos del usuario desde la BD si existe un token válido.
- * Si no hay token o no es válido, continúa sin error (req.user será undefined).
- */
-async function optionalClerkAuth(req, res, next) {
-  const token = extractToken(req);
-
-  if (!token) {
-    return next();
-  }
-
-  try {
-    const decoded = await verifyToken(token, {
-      secretKey: env.clerkSecretKey,
-    });
-
-    req.auth = {
-      ...decoded,
-      userId: extractClerkUserId(decoded),
-    };
-    next();
-  } catch (error) {
-    // No hay error si el token es inválido, simplemente continuamos sin autenticación
-    next();
-  }
-}
-
-/**
  * Extrae el token JWT del header Authorization (Bearer token)
  */
 function extractToken(req) {
@@ -74,7 +47,6 @@ function extractClerkUserId(auth) {
 
 module.exports = {
   clerkAuth,
-  optionalClerkAuth,
   extractToken,
   extractClerkUserId,
 };
