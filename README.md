@@ -71,4 +71,10 @@ El resto de `/api` requiere:
 - usuario enlazado en la tabla `usuarios`
 - usuario marcado como `activo = true`
 
+Política actual de acceso:
+
+- `roles`, `personas_roles`, `usuarios`, `tipos_cuenta`, `cuentas`, `tipos_transaccion`, `auditoria` y `personas` quedaron restringidos a roles internos
+- `destinatarios` puede ser gestionado por clientes, pero solo sobre sus propios registros
+- `transacciones` y endpoints de relaciones aplican controles de propiedad y rol
+
 Incluye CRUD para las entidades principales, endpoints de relaciones y operaciones transaccionales bancarias.

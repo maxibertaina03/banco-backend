@@ -1,9 +1,16 @@
 const { z } = require('zod');
 const { uuidLike } = require('../utils/schemas');
+const requireRoles = require('../middlewares/require-roles');
+const {
+  injectCurrentPersona,
+  requireOwnershipByEntity,
+  restrictQueryToCurrentPersona,
+} = require('../middlewares/ownership');
 
 const uuid = uuidLike;
 const numericString = z.union([z.string(), z.number()]).transform((value) => String(value));
 const optionalNullableString = z.string().trim().min(1).nullable().optional();
+const internalOnly = [requireRoles(['admin', 'operador', 'auditor', 'tesoreria'])];
 
 const entities = {
   personas: {
@@ -19,6 +26,13 @@ const entities = {
       telefono: optionalNullableString,
       fecha_nacimiento: z.iso.date().nullable().optional(),
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   roles: {
     table: 'roles',
@@ -29,6 +43,13 @@ const entities = {
       nombre: z.string().trim().min(1),
       descripcion: optionalNullableString,
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   personas_roles: {
     table: 'personas_roles',
@@ -39,6 +60,13 @@ const entities = {
       persona_id: uuid,
       rol_id: uuid,
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   usuarios: {
     table: 'usuarios',
@@ -50,6 +78,13 @@ const entities = {
       clerk_id: z.string().trim().min(1),
       activo: z.boolean().optional(),
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   tipos_cuenta: {
     table: 'tipos_cuenta',
@@ -61,6 +96,13 @@ const entities = {
       descripcion: optionalNullableString,
       limite_transferencia: numericString.nullable().optional(),
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   cuentas: {
     table: 'cuentas',
@@ -75,6 +117,13 @@ const entities = {
       saldo: numericString.optional(),
       activa: z.boolean().optional(),
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   tipos_transaccion: {
     table: 'tipos_transaccion',
@@ -85,6 +134,13 @@ const entities = {
       nombre: z.string().trim().min(1),
       descripcion: optionalNullableString,
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   destinatarios: {
     table: 'destinatarios',
@@ -97,6 +153,13 @@ const entities = {
       cbu_externo: z.string().trim().min(1),
       banco_externo: optionalNullableString,
     }),
+    access: {
+      list: [restrictQueryToCurrentPersona()],
+      get: [requireOwnershipByEntity('destinatarios')],
+      create: [injectCurrentPersona()],
+      update: [requireOwnershipByEntity('destinatarios')],
+      delete: [requireOwnershipByEntity('destinatarios')],
+    },
   },
   auditoria: {
     table: 'auditoria',
@@ -112,6 +175,13 @@ const entities = {
       payload_despues: z.record(z.string(), z.any()).nullable().optional(),
       ip_address: optionalNullableString,
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
 };
 
