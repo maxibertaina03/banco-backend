@@ -8,6 +8,14 @@ const { uuidLike } = require('../utils/schemas');
 const HttpError = require('../utils/http-error');
 
 const router = express.Router();
+const completeProfileSchema = z.object({
+  nombre: z.string().trim().min(1),
+  apellido: z.string().trim().min(1),
+  dni: z.string().trim().min(1),
+  email: z.email().trim().toLowerCase(),
+  telefono: z.string().trim().min(1),
+  fecha_nacimiento: z.iso.date(),
+});
 
 /**
  * POST /auth/login
@@ -33,6 +41,7 @@ router.post(
         apellido: user.apellido,
         email: user.email,
         activo: user.activo,
+        perfil_completo: user.perfil_completo,
       },
     });
   })
@@ -83,6 +92,26 @@ router.get(
 
     res.json({
       message: 'Perfil obtenido.',
+      user: profile,
+    });
+  })
+);
+
+/**
+ * PUT /auth/profile
+ * Completa o actualiza los datos de negocio del usuario autenticado.
+ */
+router.put(
+  '/profile',
+  clerkAuth,
+  validate(completeProfileSchema),
+  asyncHandler(async (req, res) => {
+    const clerkId = extractClerkUserId(req.auth);
+
+    const profile = await authService.completeUserProfile(clerkId, req.body);
+
+    res.json({
+      message: 'Perfil completado.',
       user: profile,
     });
   })

@@ -39,12 +39,13 @@ CREATE TABLE tipos_transaccion (
 -- ------------------------------------------------------------
 CREATE TABLE personas (
     id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    nombre           TEXT        NOT NULL,
-    apellido         TEXT        NOT NULL,
-    dni              TEXT        UNIQUE NOT NULL,
-    email            TEXT        UNIQUE NOT NULL,
+    nombre           TEXT,
+    apellido         TEXT,
+    dni              TEXT        UNIQUE,
+    email            TEXT        UNIQUE,
     telefono         TEXT,
     fecha_nacimiento DATE,
+    perfil_completo  BOOLEAN     DEFAULT FALSE,
     created_at       TIMESTAMPTZ DEFAULT NOW()
 );
 

@@ -1,0 +1,15 @@
+ALTER TABLE personas
+  ALTER COLUMN nombre DROP NOT NULL,
+  ALTER COLUMN apellido DROP NOT NULL,
+  ALTER COLUMN dni DROP NOT NULL,
+  ALTER COLUMN email DROP NOT NULL,
+  ADD COLUMN IF NOT EXISTS perfil_completo BOOLEAN DEFAULT FALSE;
+
+UPDATE personas
+SET perfil_completo = true
+WHERE dni IS NOT NULL
+  AND nombre IS NOT NULL
+  AND apellido IS NOT NULL
+  AND email IS NOT NULL
+  AND telefono IS NOT NULL
+  AND fecha_nacimiento IS NOT NULL;

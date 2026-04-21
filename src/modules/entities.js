@@ -21,10 +21,11 @@ const entities = {
     createSchema: z.object({
       nombre: z.string().trim().min(1),
       apellido: z.string().trim().min(1),
-      dni: z.string().trim().min(1),
+      dni: z.string().trim().min(1).nullable().optional(),
       email: z.email(),
       telefono: optionalNullableString,
       fecha_nacimiento: z.iso.date().nullable().optional(),
+      perfil_completo: z.boolean().optional(),
     }),
     access: {
       list: internalOnly,

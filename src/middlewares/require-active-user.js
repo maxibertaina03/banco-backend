@@ -11,7 +11,7 @@ async function requireActiveUser(req, _res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.*, p.nombre, p.apellido, p.email
+      `SELECT u.*, p.nombre, p.apellido, p.email, p.perfil_completo
        FROM usuarios u
        JOIN personas p ON p.id = u.persona_id
        WHERE u.clerk_id = $1 AND u.activo = true`,

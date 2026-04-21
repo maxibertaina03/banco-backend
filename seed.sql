@@ -73,6 +73,8 @@ INSERT INTO personas (id, nombre, apellido, dni, email, telefono, fecha_nacimien
   ('66666666-6666-6666-6666-000000000019', 'Micaela', 'Torres', '33888221', 'micaela.torres@orbitalbank.test', '3514011119', '1997-05-23', NOW() - INTERVAL '114 days'),
   ('66666666-6666-6666-6666-000000000020', 'Emiliano', 'Peralta', '26555123', 'emiliano.peralta@orbitalbank.test', '3514011120', '1980-12-10', NOW() - INTERVAL '112 days');
 
+UPDATE personas SET perfil_completo = true;
+
 -- ------------------------------------------------------------
 -- USUARIOS (20)
 -- ------------------------------------------------------------

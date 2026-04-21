@@ -4,6 +4,7 @@ const routes = require('./routes');
 const authRouter = require('./modules/auth-router');
 const { clerkAuth } = require('./middlewares/clerk-auth');
 const requireActiveUser = require('./middlewares/require-active-user');
+const requireCompleteProfile = require('./middlewares/require-complete-profile');
 const notFound = require('./middlewares/not-found');
 const errorHandler = require('./middlewares/error-handler');
 
@@ -22,8 +23,8 @@ app.get('/api/health', (_req, res) => {
 // Rutas de autenticación y onboarding
 app.use('/auth', authRouter);
 
-// Rutas del API protegidas para usuarios autenticados y activos
-app.use('/api', clerkAuth, requireActiveUser, routes);
+// Rutas del API protegidas para usuarios autenticados, activos y con perfil completo
+app.use('/api', clerkAuth, requireActiveUser, requireCompleteProfile, routes);
 
 app.use(notFound);
 app.use(errorHandler);
