@@ -80,9 +80,46 @@ CREATE TABLE cuentas (
     tipo_cuenta_id  UUID        NOT NULL REFERENCES tipos_cuenta(id),
     numero_cuenta   TEXT        UNIQUE NOT NULL,
     cbu             TEXT        UNIQUE NOT NULL,
+    alias           TEXT        UNIQUE,
     saldo           NUMERIC(18,2) NOT NULL DEFAULT 0.00,
     activa          BOOLEAN     DEFAULT TRUE,
+    banco_central_registrada BOOLEAN DEFAULT FALSE,
     created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ------------------------------------------------------------
+-- CONFIGURACION BANCO CENTRAL
+-- ------------------------------------------------------------
+CREATE TABLE banco_central_configuracion (
+    id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    environment    TEXT        NOT NULL DEFAULT 'test',
+    api_url        TEXT        NOT NULL DEFAULT 'https://centralbank.brocoly.cc/api',
+    register_token TEXT,
+    api_key        TEXT,
+    bank_name      TEXT,
+    activo         BOOLEAN     NOT NULL DEFAULT TRUE,
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (environment)
+);
+
+ALTER TABLE banco_central_configuracion ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE banco_central_configuracion FROM anon;
+REVOKE ALL ON TABLE banco_central_configuracion FROM authenticated;
+
+-- ------------------------------------------------------------
+-- REGISTRO BANCO CENTRAL
+-- ------------------------------------------------------------
+CREATE TABLE banco_central_registro (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    bank_id     TEXT        NOT NULL,
+    bank_code   INTEGER     NOT NULL,
+    nombre      TEXT        NOT NULL,
+    environment TEXT        NOT NULL DEFAULT 'test',
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (bank_id, environment),
+    UNIQUE (bank_code, environment)
 );
 
 -- ------------------------------------------------------------
@@ -103,11 +140,15 @@ CREATE TABLE destinatarios (
 CREATE TABLE transacciones (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     tipo_transaccion_id UUID        NOT NULL REFERENCES tipos_transaccion(id),
-    cuenta_origen_id    UUID        NOT NULL REFERENCES cuentas(id),
+    cuenta_origen_id    UUID                 REFERENCES cuentas(id),
     cuenta_destino_id   UUID                 REFERENCES cuentas(id),
     monto               NUMERIC(18,2) NOT NULL,
     descripcion         TEXT,
     estado              TEXT        NOT NULL DEFAULT 'pendiente',
+    central_transaction_id TEXT,
+    canal               TEXT        NOT NULL DEFAULT 'local',
+    cbu_origen          TEXT,
+    cbu_destino         TEXT,
     created_at          TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -134,10 +175,14 @@ CREATE INDEX idx_personas_roles_persona_id   ON personas_roles(persona_id);
 CREATE INDEX idx_personas_roles_rol_id       ON personas_roles(rol_id);
 CREATE INDEX idx_cuentas_persona_id          ON cuentas(persona_id);
 CREATE INDEX idx_cuentas_tipo_cuenta_id      ON cuentas(tipo_cuenta_id);
+CREATE INDEX idx_cuentas_alias               ON cuentas(alias);
 CREATE INDEX idx_destinatarios_persona_id    ON destinatarios(persona_id);
 CREATE INDEX idx_transacciones_origen        ON transacciones(cuenta_origen_id);
 CREATE INDEX idx_transacciones_destino       ON transacciones(cuenta_destino_id);
 CREATE INDEX idx_transacciones_tipo          ON transacciones(tipo_transaccion_id);
+CREATE INDEX idx_transacciones_canal         ON transacciones(canal);
+CREATE INDEX idx_transacciones_cbu_origen    ON transacciones(cbu_origen);
+CREATE INDEX idx_transacciones_cbu_destino   ON transacciones(cbu_destino);
 CREATE INDEX idx_auditoria_usuario_id        ON auditoria(usuario_id);
 CREATE INDEX idx_auditoria_entidad           ON auditoria(entidad, entidad_id);
 

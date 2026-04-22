@@ -28,6 +28,7 @@ Variables:
 
 - `PORT`: puerto del backend
 - `DATABASE_URL`: conexión a PostgreSQL o Supabase
+- `CLERK_SECRET_KEY`: clave secreta de Clerk
 
 ## Base de datos
 
@@ -41,6 +42,43 @@ psql "$DATABASE_URL" -f seed.sql
 ```
 
 `seed.sql` es opcional y sirve para cargar datos de prueba.
+
+### Configuración del Banco Central
+
+La conexión con el Banco Central se guarda en la tabla `banco_central_configuracion`, no en `.env`.
+
+Ejemplo mínimo:
+
+```sql
+INSERT INTO banco_central_configuracion (
+  environment,
+  api_url,
+  register_token,
+  api_key,
+  bank_name
+) VALUES (
+  'test',
+  'https://centralbank.brocoly.cc/api',
+  'TOKEN_DE_REGISTRO',
+  'API_KEY_DEL_BANCO',
+  'Banco Orbital'
+)
+ON CONFLICT (environment)
+DO UPDATE SET
+  api_url = EXCLUDED.api_url,
+  register_token = EXCLUDED.register_token,
+  api_key = EXCLUDED.api_key,
+  bank_name = EXCLUDED.bank_name,
+  activo = TRUE,
+  updated_at = NOW();
+```
+
+También se puede administrar desde la API con rol `admin`:
+
+- `GET /api/central-bank/config?environment=test`
+- `PUT /api/central-bank/config`
+
+El `GET` devuelve `registerToken` y `apiKey` enmascarados.
 
 ## Scripts
 
