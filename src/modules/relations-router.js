@@ -54,6 +54,17 @@ async function assertCanAccessUsuarioAuditoria(req, userId) {
 }
 
 router.get(
+  '/catalogos/transferencias',
+  asyncHandler(async (_req, res) => {
+    const result = await pool.query(
+      'SELECT id, nombre, descripcion FROM tipos_transaccion ORDER BY nombre ASC'
+    );
+
+    res.json(result.rows);
+  })
+);
+
+router.get(
   '/personas/:id/full',
   validate(paramsSchema, 'params'),
   asyncHandler(async (req, res) => {
