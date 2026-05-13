@@ -4,6 +4,7 @@ const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
 const requireRoles = require('../middlewares/require-roles');
 const centralBankService = require('./central-bank-service');
+const { uuidLike } = require('../utils/schemas');
 
 const router = express.Router();
 const internalOnly = requireRoles(['admin', 'operador', 'tesoreria']);
@@ -54,6 +55,23 @@ const transactionSchema = environmentSchema.extend({
   saldoOrigen: z.coerce.number().nonnegative(),
 });
 
+const syncAccountsQuerySchema = environmentSchema.extend({
+  limit: z.coerce.number().int().positive().max(200).optional(),
+});
+
+const syncAccountParamsSchema = z.object({
+  accountId: uuidLike,
+});
+
+const bankCodeParamsSchema = z.object({
+  bankCode: z.coerce.number().int().positive(),
+});
+
+const syncAccountsBodySchema = environmentSchema.extend({
+  accountIds: z.array(uuidLike).optional(),
+  limit: z.coerce.number().int().positive().max(200).optional(),
+});
+
 router.get(
   '/config',
   adminOnly,
@@ -94,6 +112,30 @@ router.post(
   })
 );
 
+router.get(
+  '/banks',
+  internalOnly,
+  validate(environmentSchema, 'query'),
+  asyncHandler(async (req, res) => {
+    const data = await centralBankService.listBanks(req.query.environment);
+    res.json(data);
+  })
+);
+
+router.get(
+  '/banks/:bankCode',
+  internalOnly,
+  validate(bankCodeParamsSchema, 'params'),
+  validate(environmentSchema, 'query'),
+  asyncHandler(async (req, res) => {
+    const data = await centralBankService.getBankByCode(
+      req.params.bankCode,
+      req.query.environment
+    );
+    res.json(data);
+  })
+);
+
 router.put(
   '/banks/me',
   internalOnly,
@@ -106,16 +148,20 @@ router.put(
 
 router.post(
   '/persons',
+  internalOnly,
   validate(personSchema),
   asyncHandler(async (req, res) => {
     const { environment, ...payload } = req.body;
-    const data = await centralBankService.registerPerson(payload, environment);
-    res.status(201).json(data);
+    const result = await centralBankService.registerPerson(payload, environment, {
+      includeResponseMeta: true,
+    });
+    res.status(result.status).json(result.data);
   })
 );
 
 router.get(
   '/persons/alias/:alias',
+  internalOnly,
   validate(aliasParamsSchema, 'params'),
   validate(environmentSchema, 'query'),
   asyncHandler(async (req, res) => {
@@ -126,6 +172,7 @@ router.get(
 
 router.get(
   '/persons/:cbu',
+  internalOnly,
   validate(cbuParamsSchema, 'params'),
   validate(environmentSchema, 'query'),
   asyncHandler(async (req, res) => {
@@ -136,6 +183,7 @@ router.get(
 
 router.put(
   '/persons/:cbu/alias',
+  internalOnly,
   validate(cbuParamsSchema, 'params'),
   validate(aliasBodySchema),
   asyncHandler(async (req, res) => {
@@ -150,6 +198,7 @@ router.put(
 
 router.get(
   '/transactions',
+  internalOnly,
   validate(environmentSchema, 'query'),
   asyncHandler(async (req, res) => {
     const data = await centralBankService.listTransactions(req.query.environment);
@@ -159,11 +208,46 @@ router.get(
 
 router.post(
   '/transactions',
+  internalOnly,
   validate(transactionSchema),
   asyncHandler(async (req, res) => {
     const { environment, ...payload } = req.body;
     const data = await centralBankService.createTransaction(payload, environment);
     res.status(201).json(data);
+  })
+);
+
+router.get(
+  '/sync/accounts',
+  internalOnly,
+  validate(syncAccountsQuerySchema, 'query'),
+  asyncHandler(async (req, res) => {
+    const accounts = await centralBankService.listSyncAccounts(req.query);
+    res.json({ accounts });
+  })
+);
+
+router.post(
+  '/sync/accounts/bulk',
+  internalOnly,
+  validate(syncAccountsBodySchema),
+  asyncHandler(async (req, res) => {
+    const result = await centralBankService.syncAccounts(req.body);
+    res.status(201).json(result);
+  })
+);
+
+router.post(
+  '/sync/accounts/:accountId',
+  internalOnly,
+  validate(syncAccountParamsSchema, 'params'),
+  validate(environmentSchema),
+  asyncHandler(async (req, res) => {
+    const result = await centralBankService.syncAccount(
+      req.params.accountId,
+      req.body.environment
+    );
+    res.status(201).json(result);
   })
 );
 

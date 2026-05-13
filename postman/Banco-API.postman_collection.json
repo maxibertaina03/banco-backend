@@ -53,6 +53,30 @@
     {
       "key": "auditoriaId",
       "value": "REEMPLAZAR_UUID_AUDITORIA"
+    },
+    {
+      "key": "environment",
+      "value": "test"
+    },
+    {
+      "key": "bankName",
+      "value": "Banco Orbital"
+    },
+    {
+      "key": "centralCbu",
+      "value": "REEMPLAZAR_CBU_CENTRAL"
+    },
+    {
+      "key": "centralAlias",
+      "value": "REEMPLAZAR_ALIAS_CENTRAL"
+    },
+    {
+      "key": "apiKey",
+      "value": "REEMPLAZAR_API_KEY"
+    },
+    {
+      "key": "registerToken",
+      "value": "REEMPLAZAR_REGISTER_TOKEN"
     }
   ],
   "item": [
@@ -1157,6 +1181,372 @@
               "path": [
                 "auditoria",
                 "{{auditoriaId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Banco Central",
+      "item": [
+        {
+          "name": "Ver configuracion local",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/config?environment={{environment}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "config"
+              ],
+              "query": [
+                {
+                  "key": "environment",
+                  "value": "{{environment}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Guardar configuracion local",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"environment\": \"{{environment}}\",\n  \"apiUrl\": \"https://centralbank.brocoly.cc/api\",\n  \"registerToken\": \"{{registerToken}}\",\n  \"apiKey\": \"{{apiKey}}\",\n  \"bankName\": \"{{bankName}}\",\n  \"activo\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "config"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ver estado local",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/registration?environment={{environment}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "registration"
+              ],
+              "query": [
+                {
+                  "key": "environment",
+                  "value": "{{environment}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Registrar banco",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"environment\": \"{{environment}}\",\n  \"name\": \"{{bankName}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/banks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "banks"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actualizar nombre del banco",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"environment\": \"{{environment}}\",\n  \"name\": \"{{bankName}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/banks/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "banks",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Registrar persona en banco central",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"environment\": \"{{environment}}\",\n  \"nombre\": \"Lucas\",\n  \"apellido\": \"Alessandroni\",\n  \"dni\": \"30123456\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/persons",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "persons"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Buscar persona por CBU",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/persons/{{centralCbu}}?environment={{environment}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "persons",
+                "{{centralCbu}}"
+              ],
+              "query": [
+                {
+                  "key": "environment",
+                  "value": "{{environment}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Buscar persona por alias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/persons/alias/{{centralAlias}}?environment={{environment}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "persons",
+                "alias",
+                "{{centralAlias}}"
+              ],
+              "query": [
+                {
+                  "key": "environment",
+                  "value": "{{environment}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Asignar alias a persona",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"environment\": \"{{environment}}\",\n  \"alias\": \"{{centralAlias}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/persons/{{centralCbu}}/alias",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "persons",
+                "{{centralCbu}}",
+                "alias"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar transacciones del banco central",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/transactions?environment={{environment}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "environment",
+                  "value": "{{environment}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear transaccion en banco central",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"environment\": \"{{environment}}\",\n  \"cbuOrigen\": \"{{centralCbu}}\",\n  \"cbuDestino\": \"REEMPLAZAR_CBU_DESTINO\",\n  \"importe\": 1500,\n  \"saldoOrigen\": 5000\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "transactions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar cuentas sincronizables",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/sync/accounts?environment={{environment}}&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "sync",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "key": "environment",
+                  "value": "{{environment}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Sincronizar cuenta puntual",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"environment\": \"{{environment}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/sync/accounts/{{cuentaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "sync",
+                "accounts",
+                "{{cuentaId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Sincronizar lote de cuentas",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"environment\": \"{{environment}}\",\n  \"limit\": 20\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/sync/accounts/bulk",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "sync",
+                "accounts",
+                "bulk"
               ]
             }
           }

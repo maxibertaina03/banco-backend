@@ -8,10 +8,23 @@ const { uuidLike } = require('../utils/schemas');
 const { hasAnyRole, isInternalUser } = require('../utils/access-control');
 
 const router = express.Router();
+const BASIC_SAVINGS_NAME = 'Caja de Ahorro';
 
 const paramsSchema = z.object({
   id: uuidLike,
 });
+
+function generateAccountNumber(personaId) {
+  const personaDigits = String(personaId || '').replace(/\D+/g, '').slice(-6).padStart(6, '0');
+  const timestampDigits = Date.now().toString().slice(-6);
+  return `${personaDigits}${timestampDigits}`.slice(0, 12);
+}
+
+function generateCbu(personaId) {
+  const personaDigits = String(personaId || '').replace(/\D+/g, '').slice(-10).padStart(10, '0');
+  const timestampDigits = Date.now().toString().slice(-12).padStart(12, '0');
+  return `${personaDigits}${timestampDigits}`.slice(0, 22);
+}
 
 function assertCanAccessPersona(req, personaId) {
   if (isInternalUser(req.currentUser) || req.currentUser.persona_id === personaId) {
@@ -123,6 +136,101 @@ router.get(
     );
 
     res.json(result.rows);
+  })
+);
+
+router.post(
+  '/personas/:id/cuentas/apertura-basica',
+  validate(paramsSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    assertCanAccessPersona(req, req.params.id);
+
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      const personaResult = await client.query('SELECT id FROM personas WHERE id = $1 LIMIT 1', [req.params.id]);
+
+      if (personaResult.rowCount === 0) {
+        throw new HttpError(404, `No existe la persona con id ${req.params.id}.`);
+      }
+
+      const existingAccounts = await client.query(
+        'SELECT id FROM cuentas WHERE persona_id = $1 LIMIT 1',
+        [req.params.id]
+      );
+
+      if (existingAccounts.rowCount > 0) {
+        throw new HttpError(
+          409,
+          'La persona ya tiene cuentas creadas. La apertura automática solo aplica a usuarios sin cuentas.'
+        );
+      }
+
+      const accountTypeResult = await client.query(
+        'SELECT id FROM tipos_cuenta WHERE nombre = $1 ORDER BY id ASC LIMIT 1',
+        [BASIC_SAVINGS_NAME]
+      );
+
+      if (accountTypeResult.rowCount === 0) {
+        throw new HttpError(500, 'No se encontró el tipo de cuenta Caja de Ahorro.');
+      }
+
+      let created = null;
+      let attempts = 0;
+
+      while (!created && attempts < 5) {
+        attempts += 1;
+        const numeroCuenta = generateAccountNumber(req.params.id);
+        const cbu = generateCbu(req.params.id);
+
+        try {
+          const insertResult = await client.query(
+            `INSERT INTO cuentas (
+              persona_id,
+              tipo_cuenta_id,
+              numero_cuenta,
+              cbu,
+              saldo,
+              activa,
+              banco_central_registrada
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING *`,
+            [req.params.id, accountTypeResult.rows[0].id, numeroCuenta, cbu, 0, true, false]
+          );
+
+          created = insertResult.rows[0];
+        } catch (error) {
+          if (error?.code === '23505') {
+            continue;
+          }
+
+          throw error;
+        }
+      }
+
+      if (!created) {
+        throw new HttpError(500, 'No se pudo generar una cuenta única para la persona.');
+      }
+
+      const enriched = await client.query(
+        `SELECT c.*, tc.nombre AS tipo_cuenta_nombre, tc.descripcion AS tipo_cuenta_descripcion
+         FROM cuentas c
+         JOIN tipos_cuenta tc ON tc.id = c.tipo_cuenta_id
+         WHERE c.id = $1
+         LIMIT 1`,
+        [created.id]
+      );
+
+      await client.query('COMMIT');
+      res.status(201).json(enriched.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   })
 );
 

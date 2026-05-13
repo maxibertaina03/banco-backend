@@ -36,7 +36,7 @@ INSERT INTO tipos_cuenta (id, nombre, descripcion, limite_transferencia) VALUES
   ('44444444-4444-4444-4444-000000000001', 'Caja de Ahorro', 'Cuenta de ahorro en pesos argentinos', 500000.00),
   ('44444444-4444-4444-4444-000000000002', 'Cuenta Corriente', 'Cuenta corriente para uso comercial', 1500000.00),
   ('44444444-4444-4444-4444-000000000003', 'Cuenta Sueldo', 'Cuenta para acreditacion de haberes', 800000.00),
-  ('44444444-4444-4444-4444-000000000004', 'Cuenta Premium', 'Cuenta con beneficios exclusivos y mayor limite', 3000000.00);
+  ('44444444-4444-4444-4444-000000000004', 'Caja de Ahorro en Dolares', 'Caja de ahorro nominada en dolares estadounidenses', 3000000.00);
 
 -- ------------------------------------------------------------
 -- TIPOS DE TRANSACCION
@@ -231,7 +231,7 @@ INSERT INTO auditoria (id, usuario_id, accion, entidad, entidad_id, payload_ante
   ('cccccccc-cccc-cccc-cccc-000000000005', '77777777-7777-7777-7777-000000000001', 'UPDATE', 'destinatarios', 'aaaaaaaa-aaaa-aaaa-aaaa-000000000001', '{"alias":"Alquiler"}'::jsonb, '{"alias":"Alquiler Centro"}'::jsonb, '10.20.30.41', NOW() - INTERVAL '16 days'),
   ('cccccccc-cccc-cccc-cccc-000000000006', '77777777-7777-7777-7777-000000000010', 'CREATE', 'usuarios', '77777777-7777-7777-7777-000000000010', NULL, '{"clerk_id":"orbital_bruno_001","activo":true}'::jsonb, '10.20.30.42', NOW() - INTERVAL '15 days'),
   ('cccccccc-cccc-cccc-cccc-000000000007', '77777777-7777-7777-7777-000000000014', 'UPDATE', 'personas', '66666666-6666-6666-6666-000000000014', '{"telefono":"3514011100"}'::jsonb, '{"telefono":"3514011114"}'::jsonb, '10.20.30.43', NOW() - INTERVAL '14 days'),
-  ('cccccccc-cccc-cccc-cccc-000000000008', '77777777-7777-7777-7777-000000000006', 'CREATE', 'cuentas', '99999999-9999-9999-9999-000000000017', NULL, '{"tipo":"Cuenta Premium","saldo":"2765000.00"}'::jsonb, '10.20.30.44', NOW() - INTERVAL '13 days'),
+  ('cccccccc-cccc-cccc-cccc-000000000008', '77777777-7777-7777-7777-000000000006', 'CREATE', 'cuentas', '99999999-9999-9999-9999-000000000017', NULL, '{"tipo":"Caja de Ahorro en Dolares","saldo":"2765000.00"}'::jsonb, '10.20.30.44', NOW() - INTERVAL '13 days'),
   ('cccccccc-cccc-cccc-cccc-000000000009', '77777777-7777-7777-7777-000000000004', 'UPDATE', 'cuentas', '99999999-9999-9999-9999-000000000007', '{"activa":true}'::jsonb, '{"activa":false}'::jsonb, '10.20.30.45', NOW() - INTERVAL '12 days'),
   ('cccccccc-cccc-cccc-cccc-000000000010', '77777777-7777-7777-7777-000000000012', 'CREATE', 'destinatarios', 'aaaaaaaa-aaaa-aaaa-aaaa-000000000013', NULL, '{"alias":"Estudio Juridico"}'::jsonb, '10.20.30.46', NOW() - INTERVAL '11 days'),
   ('cccccccc-cccc-cccc-cccc-000000000011', '77777777-7777-7777-7777-000000000020', 'CREATE', 'transacciones', 'bbbbbbbb-bbbb-bbbb-bbbb-000000000021', NULL, '{"monto":"18900.00","estado":"pendiente"}'::jsonb, '10.20.30.47', NOW() - INTERVAL '10 days'),
@@ -243,6 +243,6 @@ INSERT INTO auditoria (id, usuario_id, accion, entidad, entidad_id, payload_ante
   ('cccccccc-cccc-cccc-cccc-000000000017', '77777777-7777-7777-7777-000000000009', 'UPDATE', 'transacciones', 'bbbbbbbb-bbbb-bbbb-bbbb-000000000031', '{"estado":"pendiente"}'::jsonb, '{"estado":"rechazada"}'::jsonb, '10.20.30.53', NOW() - INTERVAL '4 days'),
   ('cccccccc-cccc-cccc-cccc-000000000018', '77777777-7777-7777-7777-000000000011', 'UPDATE', 'personas_roles', '88888888-8888-8888-8888-000000000013', '{"rol_id":"11111111-1111-1111-1111-000000000003"}'::jsonb, '{"rol_id":"11111111-1111-1111-1111-000000000002"}'::jsonb, '10.20.30.54', NOW() - INTERVAL '3 days'),
   ('cccccccc-cccc-cccc-cccc-000000000019', '77777777-7777-7777-7777-000000000015', 'UPDATE', 'destinatarios', 'aaaaaaaa-aaaa-aaaa-aaaa-000000000016', '{"banco_externo":"Banco Viajes"}'::jsonb, '{"banco_externo":"Banco Turismo"}'::jsonb, '10.20.30.55', NOW() - INTERVAL '2 days'),
-  ('cccccccc-cccc-cccc-cccc-000000000020', '77777777-7777-7777-7777-000000000006', 'CREATE', 'tipos_cuenta', '44444444-4444-4444-4444-000000000004', NULL, '{"nombre":"Cuenta Premium","limite_transferencia":"3000000.00"}'::jsonb, '10.20.30.56', NOW() - INTERVAL '1 day');
+  ('cccccccc-cccc-cccc-cccc-000000000020', '77777777-7777-7777-7777-000000000006', 'CREATE', 'tipos_cuenta', '44444444-4444-4444-4444-000000000004', NULL, '{"nombre":"Caja de Ahorro en Dolares","limite_transferencia":"3000000.00"}'::jsonb, '10.20.30.56', NOW() - INTERVAL '1 day');
 
 COMMIT;

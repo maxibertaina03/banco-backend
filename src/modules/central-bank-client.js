@@ -47,7 +47,7 @@ function mapCentralBankError(error) {
   return error;
 }
 
-async function requestWithRegisterToken(method, url, { data, environment } = {}) {
+async function requestWithRegisterToken(method, url, { data, environment, includeResponseMeta } = {}) {
   const config = await getCentralBankConfig(environment);
   assertRegisterToken(config);
 
@@ -65,13 +65,20 @@ async function requestWithRegisterToken(method, url, { data, environment } = {})
       },
     });
 
+    if (includeResponseMeta) {
+      return {
+        status: response.status,
+        data: response.data,
+      };
+    }
+
     return response.data;
   } catch (error) {
     throw mapCentralBankError(error);
   }
 }
 
-async function requestWithApiKey(method, url, { data, environment } = {}) {
+async function requestWithApiKey(method, url, { data, environment, includeResponseMeta } = {}) {
   const config = await getCentralBankConfig(environment);
   assertApiKey(config);
 
@@ -88,6 +95,13 @@ async function requestWithApiKey(method, url, { data, environment } = {}) {
         'x-environment': normalizeEnvironment(environment),
       },
     });
+
+    if (includeResponseMeta) {
+      return {
+        status: response.status,
+        data: response.data,
+      };
+    }
 
     return response.data;
   } catch (error) {

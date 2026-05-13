@@ -7,6 +7,7 @@ const HttpError = require('../utils/http-error');
 const { uuidLike } = require('../utils/schemas');
 const { isInternalUser } = require('../utils/access-control');
 const { writeAuditLog } = require('../utils/audit');
+const centralBankService = require('./central-bank-service');
 
 const router = express.Router();
 
@@ -69,10 +70,105 @@ const transferSchema = z.object({
   tipo_transaccion_id: uuidLike,
   cuenta_origen_id: uuidLike,
   cuenta_destino_id: uuidLike.nullable().optional(),
+  destinatario_id: uuidLike.nullable().optional(),
+  cbu_destino: z.string().trim().min(1).nullable().optional(),
   monto: z.coerce.number().positive(),
   descripcion: z.string().trim().min(1).nullable().optional(),
   estado: z.enum(['pendiente', 'completada', 'rechazada']).optional(),
 });
+
+const resolveRecipientSchema = z
+  .object({
+    alias: z.string().trim().min(1).optional(),
+    cbu: z.string().trim().min(1).optional(),
+  })
+  .refine((data) => Boolean(data.alias || data.cbu), {
+    message: 'Debes indicar un alias o un CBU.',
+  });
+
+function findStringInPayload(payload, keys) {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const queue = [payload];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+
+    if (!current || typeof current !== 'object') {
+      continue;
+    }
+
+    for (const key of keys) {
+      const value = current[key];
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+
+    for (const value of Object.values(current)) {
+      if (value && typeof value === 'object') {
+        queue.push(value);
+      }
+    }
+  }
+
+  return null;
+}
+
+function findFullNameInPayload(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const queue = [payload];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+
+    if (!current || typeof current !== 'object') {
+      continue;
+    }
+
+    const name = [current.nombre, current.apellido]
+      .filter((value) => typeof value === 'string' && value.trim())
+      .map((value) => value.trim())
+      .join(' ');
+
+    if (name) {
+      return name;
+    }
+
+    for (const value of Object.values(current)) {
+      if (value && typeof value === 'object') {
+        queue.push(value);
+      }
+    }
+  }
+
+  return null;
+}
+
+router.get(
+  '/destinatario/resolver',
+  validate(resolveRecipientSchema, 'query'),
+  asyncHandler(async (req, res) => {
+    const alias = typeof req.query.alias === 'string' ? req.query.alias.trim() : null;
+    const cbu = typeof req.query.cbu === 'string' ? req.query.cbu.trim() : null;
+    const centralData = alias
+      ? await centralBankService.findPersonByAlias(alias)
+      : await centralBankService.findPersonByCbu(cbu);
+
+    res.json({
+      alias: findStringInPayload(centralData, ['alias']) || alias || null,
+      cbu: centralBankService.extractCentralCbu(centralData) || cbu || null,
+      titular: findFullNameInPayload(centralData),
+      banco: findStringInPayload(centralData, ['bankName', 'bank_name', 'banco', 'nombreBanco']),
+      raw: centralData,
+    });
+  })
+);
 
 router.post(
   '/operar',
@@ -85,6 +181,8 @@ router.post(
         tipo_transaccion_id,
         cuenta_origen_id,
         cuenta_destino_id = null,
+        destinatario_id = null,
+        cbu_destino = null,
         monto,
         descripcion = null,
         estado = 'completada',
@@ -118,7 +216,21 @@ router.post(
         throw new HttpError(400, 'La cuenta de destino no puede ser la misma que la cuenta de origen.');
       }
 
+      const accountTypeResult = await client.query(
+        'SELECT limite_transferencia FROM tipos_cuenta WHERE id = $1',
+        [origin.tipo_cuenta_id]
+      );
+
+      const transferLimit = accountTypeResult.rows[0]?.limite_transferencia;
+      if (transferLimit !== null && transferLimit !== undefined && monto > Number(transferLimit)) {
+        throw new HttpError(400, 'El monto supera el límite de transferencia permitido para la cuenta.');
+      }
+
       let destination = null;
+      let externalRecipient = null;
+      let effectiveCbuDestino = null;
+      let centralTransactionId = null;
+      let canal = 'local';
 
       if (cuenta_destino_id) {
         const destinationResult = await client.query(
@@ -134,16 +246,49 @@ router.post(
         if (!destination.activa) {
           throw new HttpError(400, 'La cuenta de destino no está activa.');
         }
-
-        const accountTypeResult = await client.query(
-          'SELECT limite_transferencia FROM tipos_cuenta WHERE id = $1',
-          [origin.tipo_cuenta_id]
-        );
-
-        const transferLimit = accountTypeResult.rows[0]?.limite_transferencia;
-        if (transferLimit !== null && transferLimit !== undefined && monto > Number(transferLimit)) {
-          throw new HttpError(400, 'El monto supera el límite de transferencia permitido para la cuenta.');
+      } else {
+        if (!destinatario_id && !cbu_destino) {
+          throw new HttpError(400, 'Debes seleccionar una cuenta destino o indicar un destinatario válido.');
         }
+
+        if (destinatario_id) {
+          const destinatarioResult = await client.query(
+            `SELECT *
+             FROM destinatarios
+             WHERE id = $1
+               AND ($2::boolean = TRUE OR persona_id = $3)
+             LIMIT 1`,
+            [destinatario_id, isInternalUser(req.currentUser), req.currentUser.persona_id]
+          );
+
+          if (destinatarioResult.rowCount === 0) {
+            throw new HttpError(404, 'No existe el destinatario seleccionado.');
+          }
+
+          externalRecipient = destinatarioResult.rows[0];
+        }
+
+        effectiveCbuDestino = externalRecipient?.cbu_externo || cbu_destino;
+
+        if (!effectiveCbuDestino) {
+          throw new HttpError(400, 'No se pudo determinar el CBU de destino.');
+        }
+
+        if (effectiveCbuDestino === origin.cbu) {
+          throw new HttpError(400, 'No puedes transferir a la misma cuenta de origen.');
+        }
+
+        const centralTransfer = await centralBankService.createTransaction({
+          cbuOrigen: origin.cbu,
+          cbuDestino: effectiveCbuDestino,
+          importe: monto,
+          saldoOrigen: Number(origin.saldo),
+        });
+
+        effectiveCbuDestino =
+          centralBankService.extractCentralCbu(centralTransfer) || effectiveCbuDestino;
+        centralTransactionId = centralBankService.extractCentralTransactionId(centralTransfer);
+        canal = 'interbancaria_saliente';
       }
 
       await client.query('UPDATE cuentas SET saldo = saldo - $1 WHERE id = $2', [monto, cuenta_origen_id]);
@@ -159,10 +304,25 @@ router.post(
           cuenta_destino_id,
           monto,
           descripcion,
-          estado
-        ) VALUES ($1, $2, $3, $4, $5, $6)
+          estado,
+          central_transaction_id,
+          canal,
+          cbu_origen,
+          cbu_destino
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING *`,
-        [tipo_transaccion_id, cuenta_origen_id, cuenta_destino_id, monto, descripcion, estado]
+        [
+          tipo_transaccion_id,
+          cuenta_origen_id,
+          cuenta_destino_id,
+          monto,
+          descripcion,
+          estado,
+          centralTransactionId,
+          canal,
+          origin.cbu,
+          destination?.cbu || effectiveCbuDestino,
+        ]
       );
 
       await writeAuditLog(client, {

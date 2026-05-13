@@ -34,14 +34,32 @@ Variables:
 
 Antes de iniciar la API, la base debe tener el esquema cargado.
 
-Ejemplo con `psql`:
+Opcion recomendada con scripts Node:
+
+```bash
+npm run db:setup
+```
+
+Esto ejecuta:
+
+- `schema.sql`
+- `seed.sql`
+
+Tambien podés correrlos por separado:
+
+```bash
+npm run db:schema
+npm run db:seed
+```
+
+Si preferís hacerlo manual con `psql`:
 
 ```bash
 psql "$DATABASE_URL" -f schema.sql
 psql "$DATABASE_URL" -f seed.sql
 ```
 
-`seed.sql` es opcional y sirve para cargar datos de prueba.
+`seed.sql` carga datos ficticios consistentes para Orbital: roles, tipos de cuenta, tipos de transaccion, personas, usuarios, cuentas, destinatarios, transacciones y auditoria.
 
 ### Configuración del Banco Central
 
