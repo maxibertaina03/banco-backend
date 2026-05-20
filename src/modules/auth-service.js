@@ -134,6 +134,124 @@ async function deactivateUser(clerkId) {
   return result.rows[0];
 }
 
+async function syncClerkUserFromWebhook(clerkUser) {
+  const clerkId = clerkUser?.id;
+
+  if (!clerkId) {
+    throw new HttpError(400, 'El evento de Clerk no incluye un user id válido.');
+  }
+
+  const email = getPrimaryEmail(clerkUser);
+  const firstName = normalizeOptionalText(clerkUser.first_name);
+  const lastName = normalizeOptionalText(clerkUser.last_name);
+  const phone = normalizePhone(clerkUser.phone_numbers);
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const existingUser = await client.query(
+      `SELECT u.id, u.persona_id
+       FROM usuarios u
+       WHERE u.clerk_id = $1
+       LIMIT 1`,
+      [clerkId]
+    );
+
+    if (existingUser.rowCount > 0) {
+      const personaId = existingUser.rows[0].persona_id;
+
+      await client.query(
+        `UPDATE usuarios
+         SET activo = true
+         WHERE id = $1`,
+        [existingUser.rows[0].id]
+      );
+
+      await client.query(
+        `UPDATE personas
+         SET nombre = CASE
+               WHEN perfil_completo = false THEN COALESCE($1, nombre)
+               ELSE nombre
+             END,
+             apellido = CASE
+               WHEN perfil_completo = false THEN COALESCE($2, apellido)
+               ELSE apellido
+             END,
+             email = CASE
+               WHEN perfil_completo = false THEN COALESCE($3, email)
+               ELSE email
+             END,
+             telefono = CASE
+               WHEN perfil_completo = false THEN COALESCE($4, telefono)
+               ELSE telefono
+             END
+         WHERE id = $5`,
+        [firstName, lastName, email, phone, personaId]
+      );
+
+      await client.query('COMMIT');
+      return;
+    }
+
+    let personaId;
+    const existingPersona = email
+      ? await client.query('SELECT id FROM personas WHERE email = $1 LIMIT 1', [email])
+      : { rowCount: 0 };
+
+    if (existingPersona.rowCount > 0) {
+      personaId = existingPersona.rows[0].id;
+
+      await client.query(
+        `UPDATE personas
+         SET nombre = COALESCE(NULLIF(nombre, ''), $1),
+             apellido = COALESCE(NULLIF(apellido, ''), $2),
+             telefono = COALESCE(telefono, $3)
+         WHERE id = $4`,
+        [firstName, lastName, phone, personaId]
+      );
+    } else {
+      const createdPersona = await client.query(
+        `INSERT INTO personas (nombre, apellido, email, telefono, perfil_completo)
+         VALUES ($1, $2, $3, $4, false)
+         RETURNING id`,
+        [firstName, lastName, email, phone]
+      );
+
+      personaId = createdPersona.rows[0].id;
+    }
+
+    await client.query(
+      `INSERT INTO usuarios (persona_id, clerk_id, activo)
+       VALUES ($1, $2, true)
+       ON CONFLICT (clerk_id) DO UPDATE
+       SET activo = true`,
+      [personaId, clerkId]
+    );
+
+    await ensureClienteRole(client, personaId);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw mapProvisionError(error);
+  } finally {
+    client.release();
+  }
+}
+
+async function deactivateClerkUserFromWebhook(clerkId) {
+  if (!clerkId) {
+    return;
+  }
+
+  await pool.query(
+    `UPDATE usuarios
+     SET activo = false
+     WHERE clerk_id = $1`,
+    [clerkId]
+  );
+}
+
 async function provisionUserFromClerk(clerkId) {
   const clerkUser = await fetchClerkUser(clerkId);
   const email = getPrimaryEmail(clerkUser);
@@ -331,4 +449,6 @@ module.exports = {
   getUserProfile,
   completeUserProfile,
   deactivateUser,
+  syncClerkUserFromWebhook,
+  deactivateClerkUserFromWebhook,
 };

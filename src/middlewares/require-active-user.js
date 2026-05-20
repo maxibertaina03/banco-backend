@@ -1,6 +1,7 @@
 const pool = require('../db/pool');
 const HttpError = require('../utils/http-error');
 const { extractClerkUserId } = require('./clerk-auth');
+const authService = require('../modules/auth-service');
 
 async function requireActiveUser(req, _res, next) {
   const clerkId = extractClerkUserId(req.auth);
@@ -10,13 +11,25 @@ async function requireActiveUser(req, _res, next) {
   }
 
   try {
-    const result = await pool.query(
+    let result = await pool.query(
       `SELECT u.*, p.nombre, p.apellido, p.email, p.perfil_completo
        FROM usuarios u
        JOIN personas p ON p.id = u.persona_id
        WHERE u.clerk_id = $1 AND u.activo = true`,
       [clerkId]
     );
+
+    if (result.rowCount === 0) {
+      await authService.getOrCreateUser(clerkId);
+
+      result = await pool.query(
+        `SELECT u.*, p.nombre, p.apellido, p.email, p.perfil_completo
+         FROM usuarios u
+         JOIN personas p ON p.id = u.persona_id
+         WHERE u.clerk_id = $1 AND u.activo = true`,
+        [clerkId]
+      );
+    }
 
     if (result.rowCount === 0) {
       return next(new HttpError(403, 'Tu usuario no está registrado o se encuentra inactivo.'));

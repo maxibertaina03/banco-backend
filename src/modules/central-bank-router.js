@@ -36,6 +36,11 @@ const personSchema = environmentSchema.extend({
   dni: z.string().trim().min(1),
 });
 
+const localPersonRegistrationSchema = personSchema.extend({
+  email: z.string().trim().email().optional(),
+  telefono: z.string().trim().min(1).optional(),
+});
+
 const cbuParamsSchema = z.object({
   cbu: z.string().trim().min(1),
 });
@@ -45,7 +50,7 @@ const aliasParamsSchema = z.object({
 });
 
 const aliasBodySchema = environmentSchema.extend({
-  alias: z.string().trim().regex(/^[A-Za-z0-9.-]+$/, 'Alias invalido.'),
+  alias: z.string().trim().regex(/^[A-Za-z0-9.\-]+$/, 'Alias invalido. Solo letras, números, puntos y guiones.'),
 });
 
 const transactionSchema = environmentSchema.extend({
@@ -53,6 +58,10 @@ const transactionSchema = environmentSchema.extend({
   cbuDestino: z.string().trim().min(1),
   importe: z.coerce.number().positive(),
   saldoOrigen: z.coerce.number().nonnegative(),
+});
+
+const transactionsQuerySchema = environmentSchema.extend({
+  minutes: z.coerce.number().int().min(1).max(1440).optional(),
 });
 
 const syncAccountsQuerySchema = environmentSchema.extend({
@@ -70,6 +79,10 @@ const bankCodeParamsSchema = z.object({
 const syncAccountsBodySchema = environmentSchema.extend({
   accountIds: z.array(uuidLike).optional(),
   limit: z.coerce.number().int().positive().max(200).optional(),
+});
+
+const syncIncomingSchema = environmentSchema.extend({
+  minutes: z.coerce.number().int().min(1).max(1440).optional(),
 });
 
 router.get(
@@ -159,6 +172,19 @@ router.post(
   })
 );
 
+router.post(
+  '/persons/local-register',
+  internalOnly,
+  validate(localPersonRegistrationSchema),
+  asyncHandler(async (req, res) => {
+    const result = await centralBankService.registerLocalPersonFromCentral(req.body, {
+      usuarioId: req.currentUser?.id || null,
+      ipAddress: req.ip || null,
+    });
+    res.status(result.status).json(result);
+  })
+);
+
 router.get(
   '/persons/alias/:alias',
   internalOnly,
@@ -199,9 +225,12 @@ router.put(
 router.get(
   '/transactions',
   internalOnly,
-  validate(environmentSchema, 'query'),
+  validate(transactionsQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
-    const data = await centralBankService.listTransactions(req.query.environment);
+    const data = await centralBankService.listTransactions({
+      environment: req.query.environment,
+      minutes: req.query.minutes,
+    });
     res.json(data);
   })
 );
@@ -248,6 +277,16 @@ router.post(
       req.body.environment
     );
     res.status(201).json(result);
+  })
+);
+
+router.post(
+  '/sync/incoming',
+  internalOnly,
+  validate(syncIncomingSchema),
+  asyncHandler(async (req, res) => {
+    const result = await centralBankService.syncIncomingTransactions(req.body);
+    res.json(result);
   })
 );
 

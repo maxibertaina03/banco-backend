@@ -4,6 +4,7 @@ const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
 const { clerkAuth, extractClerkUserId } = require('../middlewares/clerk-auth');
 const authService = require('./auth-service');
+const centralBankService = require('./central-bank-service');
 const { uuidLike } = require('../utils/schemas');
 const HttpError = require('../utils/http-error');
 
@@ -110,9 +111,35 @@ router.put(
 
     const profile = await authService.completeUserProfile(clerkId, req.body);
 
+    // Best-effort: register person with Central Bank after profile completion.
+    // Failures here are non-fatal — the profile update already succeeded.
+    let centralBank = null;
+    try {
+      const centralResult = await centralBankService.registerLocalPersonFromCentral(
+        {
+          nombre: profile.nombre,
+          apellido: profile.apellido,
+          dni: profile.dni,
+          email: profile.email,
+          telefono: profile.telefono,
+          environment: 'test',
+        },
+        { usuarioId: profile.id, ipAddress: req.ip || null }
+      );
+      centralBank = {
+        status: centralResult.status,
+        message: centralResult.message,
+        cbu: centralResult.cuenta?.cbu || null,
+        alias: centralResult.cuenta?.alias || null,
+      };
+    } catch {
+      // swallow — Central Bank unavailable or persona already registered
+    }
+
     res.json({
       message: 'Perfil completado.',
       user: profile,
+      centralBank,
     });
   })
 );

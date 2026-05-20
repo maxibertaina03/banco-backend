@@ -4,6 +4,24 @@ const HttpError = require('../utils/http-error');
 const DEFAULT_API_URL = 'https://centralbank.brocoly.cc/api';
 const DEFAULT_ENVIRONMENT = 'test';
 
+// In-memory cache for bank config — avoids a DB round-trip on every Brocoly API call.
+// TTL: 5 minutes. Invalidated on upsert so new keys take effect immediately.
+const CONFIG_TTL_MS = 5 * 60 * 1000;
+const configCache = new Map(); // environment → { value, expiresAt }
+
+function getCached(env) {
+  const entry = configCache.get(env);
+  if (entry && entry.expiresAt > Date.now()) {
+    return entry.value;
+  }
+  configCache.delete(env);
+  return null;
+}
+
+function setCached(env, value) {
+  configCache.set(env, { value, expiresAt: Date.now() + CONFIG_TTL_MS });
+}
+
 function normalizeEnvironment(environment) {
   return environment || DEFAULT_ENVIRONMENT;
 }
@@ -39,6 +57,12 @@ function toPublicConfig(row) {
 
 async function getCentralBankConfig(environment) {
   const effectiveEnvironment = normalizeEnvironment(environment);
+
+  const cached = getCached(effectiveEnvironment);
+  if (cached) {
+    return cached;
+  }
+
   const result = await pool.query(
     `SELECT environment, api_url, register_token, api_key, bank_name, activo, created_at, updated_at
      FROM banco_central_configuracion
@@ -56,6 +80,7 @@ async function getCentralBankConfig(environment) {
     );
   }
 
+  setCached(effectiveEnvironment, config);
   return config;
 }
 
@@ -73,6 +98,8 @@ async function getPublicCentralBankConfig(environment) {
 }
 
 async function upsertCentralBankConfig(payload) {
+  // Invalidate cache so new credentials take effect on next request
+  configCache.delete(normalizeEnvironment(payload.environment));
   const effectiveEnvironment = normalizeEnvironment(payload.environment);
   const result = await pool.query(
     `INSERT INTO banco_central_configuracion (

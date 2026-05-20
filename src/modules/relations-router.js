@@ -6,6 +6,7 @@ const asyncHandler = require('../utils/async-handler');
 const HttpError = require('../utils/http-error');
 const { uuidLike } = require('../utils/schemas');
 const { hasAnyRole, isInternalUser } = require('../utils/access-control');
+const centralBankService = require('./central-bank-service');
 
 const router = express.Router();
 const BASIC_SAVINGS_NAME = 'Caja de Ahorro';
@@ -224,7 +225,40 @@ router.post(
       );
 
       await client.query('COMMIT');
-      res.status(201).json(enriched.rows[0]);
+
+      // Best-effort: register with Brocoly immediately if persona has complete profile data.
+      // On success, the CBU stored locally gets replaced with the real Brocoly-assigned CBU.
+      let centralBank = null;
+      const personaFull = await pool.query(
+        'SELECT nombre, apellido, dni, email, telefono FROM personas WHERE id = $1 LIMIT 1',
+        [req.params.id]
+      );
+      const p = personaFull.rows[0];
+
+      if (p?.nombre && p?.apellido && p?.dni) {
+        try {
+          const centralResult = await centralBankService.registerLocalPersonFromCentral(
+            {
+              nombre: p.nombre,
+              apellido: p.apellido,
+              dni: p.dni,
+              email: p.email,
+              telefono: p.telefono,
+              environment: 'test',
+            },
+            { usuarioId: req.currentUser?.id || null, ipAddress: req.ip || null }
+          );
+          centralBank = {
+            status: centralResult.status,
+            message: centralResult.message,
+            cbu: centralResult.cuenta?.cbu || null,
+          };
+        } catch {
+          // swallow — fake CBU stays until admin syncs it
+        }
+      }
+
+      res.status(201).json({ ...enriched.rows[0], centralBank });
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -261,6 +295,31 @@ router.get(
 
     const result = await pool.query(
       'SELECT * FROM destinatarios WHERE persona_id = $1 ORDER BY created_at DESC',
+      [req.params.id]
+    );
+
+    res.json(result.rows);
+  })
+);
+
+router.get(
+  '/personas/:id/transacciones',
+  validate(paramsSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    assertCanAccessPersona(req, req.params.id);
+
+    const result = await pool.query(
+      `SELECT t.*,
+              tt.nombre AS tipo_transaccion_nombre,
+              origen.numero_cuenta AS cuenta_origen_numero,
+              destino.numero_cuenta AS cuenta_destino_numero
+       FROM transacciones t
+       JOIN tipos_transaccion tt ON tt.id = t.tipo_transaccion_id
+       LEFT JOIN cuentas origen ON origen.id = t.cuenta_origen_id
+       LEFT JOIN cuentas destino ON destino.id = t.cuenta_destino_id
+       WHERE origen.persona_id = $1 OR destino.persona_id = $1
+       ORDER BY t.created_at DESC
+       LIMIT 100`,
       [req.params.id]
     );
 
