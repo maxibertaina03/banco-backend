@@ -3,9 +3,27 @@ const HttpError = require('../utils/http-error');
 const { buildFilters, buildInsertQuery, buildUpdateQuery } = require('../utils/sql');
 const { writeAuditLog } = require('../utils/audit');
 
+// Convención: las entidades pueden declarar `dto` (función fila→respuesta
+// pública) y `inputDto` (función body→payload normalizado para SQL). Si la
+// entidad no las declara, se devuelve la fila cruda y se inserta el body tal
+// cual (comportamiento previo). Esto permite migrar entidades una a una sin
+// romper las que aún no tienen DTO.
+
+function applyDto(entityConfig, row) {
+  if (!row) return row;
+  return entityConfig.dto ? entityConfig.dto(row) : row;
+}
+
+function applyInputDto(entityConfig, body) {
+  return entityConfig.inputDto ? entityConfig.inputDto(body) : body;
+}
+
 async function list(entityConfig, queryParams = {}) {
-  const page = Number(queryParams.page || 1);
-  const limit = Math.min(Number(queryParams.limit || 20), 100);
+  // page y limit ya vienen validados y coerced a number por
+  // `paginationSchema` en crud-router. Si este service se llama desde otro
+  // contexto (sin middleware), aplicamos defaults defensivos.
+  const page = typeof queryParams.page === 'number' ? queryParams.page : 1;
+  const limit = typeof queryParams.limit === 'number' ? queryParams.limit : 20;
   const offset = (page - 1) * limit;
 
   const { clauses, values } = buildFilters(entityConfig.allowedFilters, queryParams);
@@ -22,7 +40,7 @@ async function list(entityConfig, queryParams = {}) {
     page,
     limit,
     count: result.rows.length,
-    data: result.rows,
+    data: result.rows.map((row) => applyDto(entityConfig, row)),
   };
 }
 
@@ -33,7 +51,7 @@ async function getById(entityConfig, id) {
     throw new HttpError(404, `No existe el recurso en ${entityConfig.table} con id ${id}.`);
   }
 
-  return result.rows[0];
+  return applyDto(entityConfig, result.rows[0]);
 }
 
 async function create(entityConfig, payload, auditContext = {}) {
@@ -42,10 +60,13 @@ async function create(entityConfig, payload, auditContext = {}) {
   try {
     await client.query('BEGIN');
 
-    const query = buildInsertQuery(entityConfig.table, payload);
+    const normalized = applyInputDto(entityConfig, payload);
+    const query = buildInsertQuery(entityConfig.table, normalized);
     const result = await client.query(query);
     const created = result.rows[0];
 
+    // payloadDespues queda con la fila cruda: la auditoría es interna y se
+    // beneficia de tener todos los campos, incluidos los no expuestos.
     await writeAuditLog(client, {
       usuarioId: auditContext.usuarioId,
       accion: 'CREATE',
@@ -56,7 +77,7 @@ async function create(entityConfig, payload, auditContext = {}) {
     });
 
     await client.query('COMMIT');
-    return created;
+    return applyDto(entityConfig, created);
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -81,7 +102,8 @@ async function update(entityConfig, id, payload, auditContext = {}) {
     }
 
     const previous = previousResult.rows[0];
-    const query = buildUpdateQuery(entityConfig.table, id, payload);
+    const normalized = applyInputDto(entityConfig, payload);
+    const query = buildUpdateQuery(entityConfig.table, id, normalized);
     const result = await client.query(query);
     const updated = result.rows[0];
 
@@ -96,7 +118,7 @@ async function update(entityConfig, id, payload, auditContext = {}) {
     });
 
     await client.query('COMMIT');
-    return updated;
+    return applyDto(entityConfig, updated);
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -129,7 +151,7 @@ async function remove(entityConfig, id, auditContext = {}) {
     });
 
     await client.query('COMMIT');
-    return deleted;
+    return applyDto(entityConfig, deleted);
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

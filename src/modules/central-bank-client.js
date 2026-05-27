@@ -2,6 +2,9 @@ const axios = require('axios');
 const HttpError = require('../utils/http-error');
 const { getCentralBankConfig, normalizeEnvironment } = require('./central-bank-config');
 
+const REQUEST_TIMEOUT_MS = 10_000;
+const MAX_RETRIES = 3;
+
 function buildBaseUrl(apiUrl) {
   return apiUrl.replace(/\/$/, '');
 }
@@ -25,9 +28,7 @@ function assertApiKey(config) {
 }
 
 function mapCentralBankError(error) {
-  if (error instanceof HttpError) {
-    return error;
-  }
+  if (error instanceof HttpError) return error;
 
   if (error.response) {
     const status = error.response.status;
@@ -35,7 +36,7 @@ function mapCentralBankError(error) {
     if (status === 429) {
       return new HttpError(
         429,
-        'El Banco Central está limitando las solicitudes. Espera unos segundos e intenta de nuevo.',
+        'El Banco Central está limitando las solicitudes. Esperá unos segundos e intentá de nuevo.',
         { centralBank: error.response.data }
       );
     }
@@ -53,16 +54,45 @@ function mapCentralBankError(error) {
       error.response.data?.message ||
       'El Banco Central rechazó la solicitud.';
 
-    return new HttpError(status, message, {
-      centralBank: error.response.data,
-    });
+    return new HttpError(status, message, { centralBank: error.response.data });
   }
 
   if (error.request) {
-    return new HttpError(502, 'No se pudo conectar con la API del Banco Central. Verifica tu conexión e intenta de nuevo.');
+    return new HttpError(502, 'No se pudo conectar con la API del Banco Central. Verificá tu conexión e intentá de nuevo.');
   }
 
   return error;
+}
+
+function isRetryable(error) {
+  // No reintentar errores 4xx: son permanentes (bad request, not found, conflict)
+  if (error instanceof HttpError && error.status >= 400 && error.status < 500) return false;
+  // No reintentar rate limit (429): el reintento inmediato empeoraría la situación
+  if (error instanceof HttpError && error.status === 429) return false;
+  // Reintentar 5xx y errores de red/timeout
+  return true;
+}
+
+async function withRetry(fn, maxRetries = MAX_RETRIES) {
+  let lastError;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      const mapped = error instanceof HttpError ? error : mapCentralBankError(error);
+      lastError = mapped;
+
+      if (!isRetryable(mapped) || attempt === maxRetries - 1) {
+        throw mapped;
+      }
+
+      // Backoff exponencial: 500ms, 1000ms, 2000ms...
+      await new Promise((resolve) => setTimeout(resolve, 2 ** attempt * 500));
+    }
+  }
+
+  throw lastError;
 }
 
 async function requestWithRegisterToken(
@@ -73,14 +103,14 @@ async function requestWithRegisterToken(
   const config = await getCentralBankConfig(environment);
   assertRegisterToken(config);
 
-  try {
+  return withRetry(async () => {
     const response = await axios.request({
       method,
       baseURL: buildBaseUrl(config.api_url),
       url,
       data,
       params,
-      timeout: 10000,
+      timeout: REQUEST_TIMEOUT_MS,
       headers: {
         Authorization: `Bearer ${config.register_token}`,
         'Content-Type': 'application/json',
@@ -88,17 +118,9 @@ async function requestWithRegisterToken(
       },
     });
 
-    if (includeResponseMeta) {
-      return {
-        status: response.status,
-        data: response.data,
-      };
-    }
-
+    if (includeResponseMeta) return { status: response.status, data: response.data };
     return response.data;
-  } catch (error) {
-    throw mapCentralBankError(error);
-  }
+  });
 }
 
 async function requestWithApiKey(
@@ -109,14 +131,14 @@ async function requestWithApiKey(
   const config = await getCentralBankConfig(environment);
   assertApiKey(config);
 
-  try {
+  return withRetry(async () => {
     const response = await axios.request({
       method,
       baseURL: buildBaseUrl(config.api_url),
       url,
       data,
       params,
-      timeout: 10000,
+      timeout: REQUEST_TIMEOUT_MS,
       headers: {
         'x-api-key': config.api_key,
         'Content-Type': 'application/json',
@@ -124,17 +146,9 @@ async function requestWithApiKey(
       },
     });
 
-    if (includeResponseMeta) {
-      return {
-        status: response.status,
-        data: response.data,
-      };
-    }
-
+    if (includeResponseMeta) return { status: response.status, data: response.data };
     return response.data;
-  } catch (error) {
-    throw mapCentralBankError(error);
-  }
+  });
 }
 
 module.exports = {

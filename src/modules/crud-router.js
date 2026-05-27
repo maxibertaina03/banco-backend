@@ -5,6 +5,7 @@ const asyncHandler = require('../utils/async-handler');
 const crudService = require('./crud-service');
 const { uuidLike } = require('../utils/schemas');
 const { buildAuditContext } = require('../utils/audit');
+const { paginationSchema } = require('../utils/pagination');
 
 const paramsSchema = z.object({
   id: uuidLike,
@@ -22,6 +23,7 @@ function createCrudRouter(entityConfig) {
   router.get(
     '/',
     ...listAccess,
+    validate(paginationSchema, 'query'),
     asyncHandler(async (req, res) => {
       const data = await crudService.list(entityConfig, req.query);
       res.json(data);

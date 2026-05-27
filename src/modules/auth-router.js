@@ -37,7 +37,6 @@ router.post(
       user: {
         id: user.id,
         persona_id: user.persona_id,
-        clerk_id: user.clerk_id,
         nombre: user.nombre,
         apellido: user.apellido,
         email: user.email,
@@ -146,20 +145,15 @@ router.put(
 
 /**
  * POST /auth/logout
- * Desautentica al usuario desactivando su cuenta.
- * Requiere: token JWT de Clerk autorizado
+ * Stateless JWT: el token expira por sí solo en Clerk.
+ * El backend solo confirma recepción; la invalidación real ocurre
+ * en el cliente (Clerk SignOut) que revoca la sesión en Clerk.
  */
 router.post(
   '/logout',
   clerkAuth,
-  asyncHandler(async (req, res) => {
-    const clerkId = extractClerkUserId(req.auth);
-
-    await authService.deactivateUser(clerkId);
-
-    res.json({
-      message: 'Logout exitoso.',
-    });
+  asyncHandler(async (_req, res) => {
+    res.json({ message: 'Sesión cerrada.' });
   })
 );
 

@@ -6,6 +6,25 @@ const {
   requireOwnershipByEntity,
   restrictQueryToCurrentPersona,
 } = require('../middlewares/ownership');
+const {
+  toPublicPersona,
+  toPublicUsuario,
+  toPublicCuenta,
+  toPublicTransaccion,
+  toPublicDestinatario,
+  toPublicRol,
+  toPublicTipoCuenta,
+  toPublicTipoTransaccion,
+  toPublicPersonaRol,
+  normalizePersonaInput,
+  normalizeCuentaInput,
+  normalizeDestinatarioInput,
+  normalizeUsuarioInput,
+  normalizeRolInput,
+  normalizeTipoCuentaInput,
+  normalizeTipoTransaccionInput,
+  normalizePersonaRolInput,
+} = require('../dtos');
 
 const uuid = uuidLike;
 const numericString = z.union([z.string(), z.number()]).transform((value) => String(value));
@@ -18,6 +37,8 @@ const entities = {
     orderBy: 'created_at DESC',
     select: '*',
     allowedFilters: ['dni', 'email'],
+    dto: toPublicPersona,
+    inputDto: normalizePersonaInput,
     createSchema: z.object({
       nombre: z.string().trim().min(1),
       apellido: z.string().trim().min(1),
@@ -40,6 +61,8 @@ const entities = {
     orderBy: 'nombre ASC',
     select: '*',
     allowedFilters: ['nombre'],
+    dto: toPublicRol,
+    inputDto: normalizeRolInput,
     createSchema: z.object({
       nombre: z.string().trim().min(1),
       descripcion: optionalNullableString,
@@ -57,6 +80,8 @@ const entities = {
     orderBy: 'asignado_at DESC',
     select: '*',
     allowedFilters: ['persona_id', 'rol_id'],
+    dto: toPublicPersonaRol,
+    inputDto: normalizePersonaRolInput,
     createSchema: z.object({
       persona_id: uuid,
       rol_id: uuid,
@@ -74,6 +99,8 @@ const entities = {
     orderBy: 'created_at DESC',
     select: '*',
     allowedFilters: ['persona_id', 'clerk_id', 'activo'],
+    dto: toPublicUsuario,
+    inputDto: normalizeUsuarioInput,
     createSchema: z.object({
       persona_id: uuid,
       clerk_id: z.string().trim().min(1),
@@ -92,6 +119,8 @@ const entities = {
     orderBy: 'nombre ASC',
     select: '*',
     allowedFilters: ['nombre'],
+    dto: toPublicTipoCuenta,
+    inputDto: normalizeTipoCuentaInput,
     createSchema: z.object({
       nombre: z.string().trim().min(1),
       descripcion: optionalNullableString,
@@ -110,6 +139,8 @@ const entities = {
     orderBy: 'created_at DESC',
     select: '*',
     allowedFilters: ['persona_id', 'tipo_cuenta_id', 'activa', 'numero_cuenta', 'cbu', 'alias'],
+    dto: toPublicCuenta,
+    inputDto: normalizeCuentaInput,
     createSchema: z.object({
       persona_id: uuid,
       tipo_cuenta_id: uuid,
@@ -133,6 +164,8 @@ const entities = {
     orderBy: 'nombre ASC',
     select: '*',
     allowedFilters: ['nombre'],
+    dto: toPublicTipoTransaccion,
+    inputDto: normalizeTipoTransaccionInput,
     createSchema: z.object({
       nombre: z.string().trim().min(1),
       descripcion: optionalNullableString,
@@ -150,6 +183,8 @@ const entities = {
     orderBy: 'created_at DESC',
     select: '*',
     allowedFilters: ['persona_id', 'alias', 'cbu_externo'],
+    dto: toPublicDestinatario,
+    inputDto: normalizeDestinatarioInput,
     createSchema: z.object({
       persona_id: uuid,
       alias: optionalNullableString,
@@ -202,6 +237,7 @@ entities.transacciones = {
     'cbu_origen',
     'cbu_destino',
   ],
+  dto: toPublicTransaccion,
   createSchema: z.object({
     tipo_transaccion_id: uuid,
     cuenta_origen_id: uuid.nullable().optional(),

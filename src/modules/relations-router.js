@@ -7,6 +7,14 @@ const HttpError = require('../utils/http-error');
 const { uuidLike } = require('../utils/schemas');
 const { hasAnyRole, isInternalUser } = require('../utils/access-control');
 const centralBankService = require('./central-bank-service');
+const {
+  toPublicPersona,
+  toPublicUsuario,
+  toPublicCuenta,
+  toPublicTransaccion,
+  toPublicDestinatario,
+  toPublicRol,
+} = require('../dtos');
 
 const router = express.Router();
 const BASIC_SAVINGS_NAME = 'Caja de Ahorro';
@@ -112,11 +120,11 @@ router.get(
     ]);
 
     res.json({
-      persona: personaResult.rows[0],
-      usuario: usuario.rows[0] || null,
-      cuentas: cuentas.rows,
-      destinatarios: destinatarios.rows,
-      roles: roles.rows,
+      persona: toPublicPersona(personaResult.rows[0]),
+      usuario: toPublicUsuario(usuario.rows[0]),
+      cuentas: cuentas.rows.map(toPublicCuenta),
+      destinatarios: destinatarios.rows.map(toPublicDestinatario),
+      roles: roles.rows.map(toPublicRol),
     });
   })
 );
@@ -136,7 +144,7 @@ router.get(
       [req.params.id]
     );
 
-    res.json(result.rows);
+    res.json(result.rows.map(toPublicCuenta));
   })
 );
 
@@ -258,7 +266,7 @@ router.post(
         }
       }
 
-      res.status(201).json({ ...enriched.rows[0], centralBank });
+      res.status(201).json({ ...toPublicCuenta(enriched.rows[0]), centralBank });
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -283,7 +291,7 @@ router.get(
       [req.params.id]
     );
 
-    res.json(result.rows);
+    res.json(result.rows.map(toPublicRol));
   })
 );
 
@@ -298,7 +306,7 @@ router.get(
       [req.params.id]
     );
 
-    res.json(result.rows);
+    res.json(result.rows.map(toPublicDestinatario));
   })
 );
 
@@ -323,7 +331,7 @@ router.get(
       [req.params.id]
     );
 
-    res.json(result.rows);
+    res.json(result.rows.map(toPublicTransaccion));
   })
 );
 
@@ -347,7 +355,7 @@ router.get(
       [req.params.id]
     );
 
-    res.json(result.rows);
+    res.json(result.rows.map(toPublicTransaccion));
   })
 );
 

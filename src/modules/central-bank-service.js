@@ -11,6 +11,7 @@ const {
   requestWithRegisterToken,
 } = require('./central-bank-client');
 const { writeAuditLog } = require('../utils/audit');
+const { createTTLCache } = require('../utils/ttl-cache');
 
 const DEFAULT_SYNC_LIMIT = 25;
 const MIN_ALIAS_LENGTH = 6;
@@ -18,20 +19,8 @@ const MAX_ALIAS_LENGTH = 20;
 const DEFAULT_ACCOUNT_TYPE_NAME = 'Caja de Ahorro';
 
 // Cache for listBanks — the bank list changes only when banks register/rename.
-// TTL: 5 minutes per environment.
-const BANKS_TTL_MS = 5 * 60 * 1000;
-const banksCache = new Map(); // `${environment}` → { value, expiresAt }
-
-function getBanksCached(env) {
-  const entry = banksCache.get(env);
-  if (entry && entry.expiresAt > Date.now()) return entry.value;
-  banksCache.delete(env);
-  return null;
-}
-
-function setBanksCached(env, value) {
-  banksCache.set(env, { value, expiresAt: Date.now() + BANKS_TTL_MS });
-}
+// Max 10 entries (one per environment variant), TTL 5 minutes.
+const banksCache = createTTLCache(10, 5 * 60_000);
 
 function generateLocalAccountNumber(personaId) {
   const personaDigits = String(personaId || '').replace(/\D+/g, '').slice(-6).padStart(6, '0');
@@ -344,11 +333,11 @@ async function updateBankName({ name, environment }) {
 
 async function listBanks(environment) {
   const env = normalizeEnvironment(environment);
-  const cached = getBanksCached(env);
+  const cached = banksCache.get(env);
   if (cached) return cached;
 
   const result = await requestWithApiKey('get', '/banks', { environment });
-  setBanksCached(env, result);
+  banksCache.set(env, result);
   return result;
 }
 
