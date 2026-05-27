@@ -1,0 +1,91 @@
+name: CI
+
+# Corre en cada push y PR a main/master. Cancela runs viejos del mismo PR.
+on:
+  # Corre en cada push a cualquier branch para feedback temprano en features.
+  # Para PRs corre también — útil cuando un fork abre PR sin push directo.
+  push:
+    branches-ignore: ['backup/**']
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests + syntax check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          # Cache de ~/.npm cuando cambia el lockfile — corridas siguientes
+          # bajan de ~30s a ~5s.
+          cache: 'npm'
+
+      - name: Install dependencies
+        # `npm ci` falla si lockfile y package.json divergen — exacto lo que
+        # querés en CI. Más rápido que `npm install` y deterministic.
+        run: npm ci
+
+      - name: Syntax check (node --check) en archivos clave
+        # Verificación rápida antes de los tests. Si hay un syntax error en
+        # un archivo no testeado, igualmente lo atrapa.
+        run: |
+          for f in $(find src -name "*.js" -not -path "*/node_modules/*"); do
+            node --check "$f"
+          done
+
+      - name: Run tests (vitest)
+        # Usa el env mínimo: las queries reales están mockeadas via DI, pero
+        # el módulo env.js valida que existan DATABASE_URL y CLERK_SECRET_KEY
+        # al cargarse (ver src/config/env.js).
+        env:
+          NODE_ENV: test
+          DATABASE_URL: 'postgresql://test:test@localhost/test_db'
+          CLERK_SECRET_KEY: 'sk_test_ci_dummy'
+          LOG_LEVEL: 'silent'
+        run: npm test
+
+      - name: Verificar que la app carga sin errores
+        # Smoke test: importa `src/app` para detectar errores de wiring
+        # (imports rotos, middleware mal configurado, etc.) que los tests
+        # unitarios no atrapan.
+        env:
+          NODE_ENV: test
+          DATABASE_URL: 'postgresql://test:test@localhost/test_db'
+          CLERK_SECRET_KEY: 'sk_test_ci_dummy'
+          LOG_LEVEL: 'silent'
+        run: node -e "require('./src/app'); console.log('app loaded OK')"
+
+  security-audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # No falla el job si encuentra vulnerabilidades (warning informativo);
+    # bloqueás PRs solo cuando aparezcan high/critical en deps directas.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit (high + critical)
+        run: npm audit --audit-level=high
