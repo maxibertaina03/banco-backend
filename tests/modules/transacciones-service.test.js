@@ -310,3 +310,188 @@ describe('createContractTransfer', () => {
     expect(mocks.mockClient.release).toHaveBeenCalledOnce();
   });
 });
+
+// ── createDeposit ───────────────────────────────────────────────────────────
+
+describe('createDeposit', () => {
+  function setupDepositQueries(mockClient, { destination, insertedRow }) {
+    mockClient.query.mockImplementation((sqlOrConfig) => {
+      const text = typeof sqlOrConfig === 'string' ? sqlOrConfig : sqlOrConfig?.text || '';
+
+      if (/^(BEGIN|COMMIT|ROLLBACK)/.test(text)) {
+        return Promise.resolve({ rows: [] });
+      }
+      // getLocalAccountById (destino)
+      if (text.includes('WHERE c.id = $1') && text.includes('FOR UPDATE')) {
+        return Promise.resolve({ rows: destination ? [destination] : [] });
+      }
+      if (text.includes("lower(nombre) = 'deposito'")) {
+        return Promise.resolve({ rowCount: 1, rows: [{ id: 'tt-deposito' }] });
+      }
+      if (text.startsWith('UPDATE cuentas SET saldo')) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (text.startsWith('INSERT INTO transacciones')) {
+        return Promise.resolve({ rows: [insertedRow] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+  }
+
+  it('happy path: acredita el saldo y registra la transacción', async () => {
+    const mocks = buildMocks();
+    const destination = {
+      id: 'c-1',
+      cbu: '1'.repeat(22),
+      saldo: '1000',
+      activa: true,
+      persona_id: 'p-1',
+      nombre: 'Juan',
+      apellido: 'Pérez',
+    };
+    setupDepositQueries(mocks.mockClient, {
+      destination,
+      insertedRow: {
+        id: 'tx-deposit-1',
+        estado: 'completada',
+        canal: 'deposito_efectivo',
+        monto: '500',
+      },
+    });
+    const service = buildService(mocks);
+
+    const result = await service.createDeposit({
+      cuenta_destino_id: 'c-1',
+      monto: 500,
+      descripcion: 'Depósito sucursal centro',
+      currentUser: internalUser,
+      ipAddress: '127.0.0.1',
+    });
+
+    expect(result.transaction.id).toBe('tx-deposit-1');
+    expect(result.destinationName).toBe('Juan Pérez');
+    expect(mocks.writeAuditLog).toHaveBeenCalledOnce();
+
+    // Verifica que se haya hecho UPDATE de saldo con el monto correcto.
+    const updateCalls = mocks.mockClient.query.mock.calls.filter((c) =>
+      (typeof c[0] === 'string' ? c[0] : c[0]?.text || '').startsWith('UPDATE cuentas SET saldo')
+    );
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0][1]).toEqual([500, 'c-1']);
+  });
+
+  it('rechaza monto = 0 con 400', async () => {
+    const mocks = buildMocks();
+    const service = buildService(mocks);
+
+    await expect(
+      service.createDeposit({
+        cuenta_destino_id: 'c-1',
+        monto: 0,
+        currentUser: internalUser,
+        ipAddress: '127.0.0.1',
+      })
+    ).rejects.toMatchObject({ status: 400 });
+    expect(mocks.pool.connect).not.toHaveBeenCalled();
+  });
+
+  it('rechaza monto negativo con 400', async () => {
+    const mocks = buildMocks();
+    const service = buildService(mocks);
+
+    await expect(
+      service.createDeposit({
+        cuenta_destino_id: 'c-1',
+        monto: -100,
+        currentUser: internalUser,
+        ipAddress: '127.0.0.1',
+      })
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('404 si la cuenta destino no existe', async () => {
+    const mocks = buildMocks();
+    setupDepositQueries(mocks.mockClient, {
+      destination: null,
+      insertedRow: { id: 'never' },
+    });
+    const service = buildService(mocks);
+
+    await expect(
+      service.createDeposit({
+        cuenta_destino_id: 'c-ghost',
+        monto: 100,
+        currentUser: internalUser,
+        ipAddress: '127.0.0.1',
+      })
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('400 si la cuenta destino está desactivada', async () => {
+    const mocks = buildMocks();
+    setupDepositQueries(mocks.mockClient, {
+      destination: {
+        id: 'c-1',
+        cbu: '1'.repeat(22),
+        saldo: '0',
+        activa: false,
+        nombre: 'Juan',
+        apellido: 'Pérez',
+      },
+      insertedRow: { id: 'never' },
+    });
+    const service = buildService(mocks);
+
+    await expect(
+      service.createDeposit({
+        cuenta_destino_id: 'c-1',
+        monto: 100,
+        currentUser: internalUser,
+        ipAddress: '127.0.0.1',
+      })
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rollback si falla el INSERT: COMMIT no se llama', async () => {
+    const mocks = buildMocks();
+    let phase = 'init';
+    mocks.mockClient.query.mockImplementation((sqlOrConfig) => {
+      const text = typeof sqlOrConfig === 'string' ? sqlOrConfig : sqlOrConfig?.text || '';
+      if (/^(BEGIN|COMMIT|ROLLBACK)/.test(text)) return Promise.resolve({ rows: [] });
+      if (text.includes('WHERE c.id = $1') && text.includes('FOR UPDATE')) {
+        return Promise.resolve({
+          rows: [{ id: 'c-1', cbu: '1'.repeat(22), activa: true, nombre: 'J', apellido: 'P' }],
+        });
+      }
+      if (text.includes("lower(nombre) = 'deposito'")) {
+        return Promise.resolve({ rowCount: 1, rows: [{ id: 'tt-deposito' }] });
+      }
+      if (text.startsWith('UPDATE cuentas SET saldo')) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (text.startsWith('INSERT INTO transacciones')) {
+        phase = 'inserting';
+        return Promise.reject(new Error('insert falló'));
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const service = buildService(mocks);
+
+    await expect(
+      service.createDeposit({
+        cuenta_destino_id: 'c-1',
+        monto: 100,
+        currentUser: internalUser,
+        ipAddress: '127.0.0.1',
+      })
+    ).rejects.toThrow('insert falló');
+
+    const queries = mocks.mockClient.query.mock.calls.map((c) =>
+      typeof c[0] === 'string' ? c[0] : c[0]?.text
+    );
+    expect(queries).toContain('BEGIN');
+    expect(queries).toContain('ROLLBACK');
+    expect(queries).not.toContain('COMMIT');
+    expect(phase).toBe('inserting');
+  });
+});

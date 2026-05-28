@@ -447,6 +447,88 @@ function createTransaccionesService({
     });
   }
 
+  // Helper paralelo a getTransferTypeId pero para depósitos. Cacheable porque
+  // los tipos no cambian, pero por simplicidad lo dejamos como query.
+  async function getDepositTypeId(client) {
+    const result = await client.query(
+      "SELECT id FROM tipos_transaccion WHERE lower(nombre) = 'deposito' LIMIT 1"
+    );
+    if (result.rowCount === 0) {
+      throw new HttpError(500, 'No se encontró el tipo de transacción "deposito".');
+    }
+    return result.rows[0].id;
+  }
+
+  // Depósito en efectivo a una cuenta. Operación interna (admin/operador/
+  // tesorería) — simula que el cliente fue a una sucursal y depositó.
+  // - No tiene cuenta de origen (efectivo físico → null).
+  // - Acredita el monto inmediatamente.
+  // - Convención semántica: cuenta_destino_id = cuenta receptora (para que
+  //   el frontend la muestre como movimiento entrante con `+monto`).
+  // - Sin paso por Banco Central (es operación interna del banco).
+  async function createDeposit({
+    cuenta_destino_id,
+    monto,
+    descripcion = null,
+    currentUser,
+    ipAddress,
+  }) {
+    if (!Number.isFinite(Number(monto)) || Number(monto) <= 0) {
+      throw new HttpError(400, 'El monto del depósito debe ser mayor a cero.');
+    }
+
+    return withTransaction(async (client) => {
+      const destination = await getLocalAccountById(client, cuenta_destino_id);
+      if (!destination) {
+        throw new HttpError(404, `No existe la cuenta de destino ${cuenta_destino_id}.`);
+      }
+      if (!destination.activa) {
+        throw new HttpError(400, 'La cuenta de destino no está activa.');
+      }
+
+      const transferTypeId = await getDepositTypeId(client);
+      const amount = Number(monto);
+
+      // Acreditar saldo.
+      await client.query(
+        'UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2',
+        [amount, destination.id]
+      );
+
+      // Registrar la transacción. cuenta_origen_id = NULL (efectivo físico).
+      const created = await client.query(
+        `INSERT INTO transacciones (
+          tipo_transaccion_id,
+          cuenta_origen_id,
+          cuenta_destino_id,
+          monto,
+          descripcion,
+          estado,
+          canal,
+          cbu_origen,
+          cbu_destino
+        ) VALUES ($1, NULL, $2, $3, $4, 'completada', 'deposito_efectivo', NULL, $5)
+        RETURNING *`,
+        [transferTypeId, destination.id, amount, descripcion, destination.cbu]
+      );
+
+      await writeAuditLog(client, {
+        usuarioId: currentUser?.id,
+        accion: 'CREATE',
+        entidad: 'transacciones',
+        entidadId: created.rows[0].id,
+        payloadDespues: created.rows[0],
+        ipAddress,
+      });
+
+      return {
+        transaction: created.rows[0],
+        destinationName: `${destination.nombre} ${destination.apellido}`.trim() || null,
+        destinationCbu: destination.cbu,
+      };
+    });
+  }
+
   async function syncIncomingForUser(currentUser) {
     if (!currentUser?.persona_id) {
       throw new HttpError(400, 'No se pudo determinar la persona asociada a tu usuario.');
@@ -474,6 +556,7 @@ function createTransaccionesService({
     resolveRecipient,
     createContractTransfer,
     operate,
+    createDeposit,
     syncIncomingForUser,
   };
 }

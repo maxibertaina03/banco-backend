@@ -7,6 +7,7 @@ const { toPublicTransaccion } = require('../dtos');
 const service = require('./transacciones-service');
 const pool = require('../db/pool');
 const createIdempotency = require('../middlewares/idempotency');
+const requireRoles = require('../middlewares/require-roles');
 
 const router = express.Router();
 const idempotency = createIdempotency(pool);
@@ -47,6 +48,14 @@ const resolveRecipientSchema = z
   .refine((data) => Boolean(data.alias || data.cbu), {
     message: 'Debes indicar un alias o un CBU.',
   });
+
+// Depósito en efectivo (sucursal): un operador/admin/tesorería acredita
+// efectivo físico a la cuenta de un cliente.
+const depositSchema = z.object({
+  cuenta_destino_id: uuidLike,
+  monto: z.coerce.number().positive(),
+  descripcion: z.string().trim().min(1).max(140).nullable().optional(),
+});
 
 // ── Rutas ───────────────────────────────────────────────────────────────────
 
@@ -139,6 +148,31 @@ router.post(
   asyncHandler(async (req, res) => {
     const result = await service.syncIncomingForUser(req.currentUser);
     res.json(result);
+  })
+);
+
+// Depósito en efectivo. Solo roles internos pueden hacerlo (simula que el
+// cliente fue a una sucursal y el cajero registra el ingreso).
+// Idempotency-Key se aplica igual que en transferencias para evitar
+// dobles acreditaciones si el operador reintenta.
+router.post(
+  '/deposito',
+  requireRoles(['admin', 'operador', 'tesoreria']),
+  idempotency,
+  validate(depositSchema),
+  asyncHandler(async (req, res) => {
+    const result = await service.createDeposit({
+      ...req.body,
+      currentUser: req.currentUser,
+      ipAddress: req.ip || null,
+    });
+
+    res.status(201).json({
+      message: 'Depósito acreditado.',
+      ...toPublicTransaccion(result.transaction),
+      destinationName: result.destinationName,
+      destinationCbu: result.destinationCbu,
+    });
   })
 );
 
