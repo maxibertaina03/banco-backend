@@ -10,9 +10,6 @@
     "db:setup": "node scripts/db-setup.js all",
     "db:schema": "node scripts/db-setup.js schema",
     "db:seed": "node scripts/db-setup.js seed",
-    "clerk:export": "node scripts/export-users-csv.js",
-    "clerk:import": "node scripts/import-clerk-csv.js",
-    "clerk:reconcile": "node scripts/reconcile-clerk-users.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui"
