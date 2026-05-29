@@ -389,6 +389,55 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
     }
   }
 
+  // Actualización parcial del perfil. Solo toca los campos enviados; el
+  // resto queda intacto. NO modifica perfil_completo, dni ni fecha_nacimiento
+  // (datos sensibles que deben pasar por flujo de verificación específico).
+  async function updateUserProfile(clerkId, payload) {
+    const allowed = ['nombre', 'apellido', 'telefono', 'email'];
+    const updates = [];
+    const values = [];
+
+    for (const field of allowed) {
+      if (payload[field] !== undefined) {
+        updates.push(`${field} = $${values.length + 1}`);
+        values.push(payload[field]);
+      }
+    }
+
+    if (updates.length === 0) {
+      throw new HttpError(400, 'No hay campos para actualizar.');
+    }
+
+    values.push(clerkId);
+    const clerkIdParam = `$${values.length}`;
+
+    const result = await pool.query(
+      `UPDATE personas p
+       SET ${updates.join(', ')}
+       FROM usuarios u
+       WHERE u.persona_id = p.id
+         AND u.clerk_id = ${clerkIdParam}
+         AND u.activo = true
+       RETURNING
+         u.id,
+         u.persona_id,
+         u.activo,
+         p.nombre,
+         p.apellido,
+         p.dni,
+         p.email,
+         p.telefono,
+         p.fecha_nacimiento,
+         p.perfil_completo`,
+      values
+    );
+
+    if (result.rowCount === 0) {
+      throw new HttpError(404, 'Usuario no encontrado o inactivo.');
+    }
+    return result.rows[0];
+  }
+
   async function completeUserProfile(clerkId, payload) {
     const result = await pool.query(
       `UPDATE personas p
@@ -436,6 +485,7 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
     createUserWithClerk,
     getUserProfile,
     completeUserProfile,
+    updateUserProfile,
     deactivateUser,
     syncClerkUserFromWebhook,
     deactivateClerkUserFromWebhook,

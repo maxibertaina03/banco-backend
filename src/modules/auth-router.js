@@ -18,6 +18,20 @@ const completeProfileSchema = z.object({
   fecha_nacimiento: z.iso.date(),
 });
 
+// Edición parcial del perfil ya completo. A diferencia del PUT, no exige
+// todos los campos: el cliente manda solo lo que cambió. NO toca
+// `perfil_completo` (si ya era true, sigue siendo true).
+const editProfileSchema = z
+  .object({
+    nombre: z.string().trim().min(1).optional(),
+    apellido: z.string().trim().min(1).optional(),
+    telefono: z.string().trim().min(6).optional(),
+    email: z.email().trim().toLowerCase().optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'Debes enviar al menos un campo para actualizar.',
+  });
+
 /**
  * POST /auth/login
  * Autentica al usuario con Clerk y lo sincroniza con la BD.
@@ -140,6 +154,22 @@ router.put(
       user: profile,
       centralBank,
     });
+  })
+);
+
+/**
+ * PATCH /auth/profile
+ * Actualización parcial del perfil (nombre, apellido, teléfono, email).
+ * Solo para usuarios con perfil ya completo.
+ */
+router.patch(
+  '/profile',
+  clerkAuth,
+  validate(editProfileSchema),
+  asyncHandler(async (req, res) => {
+    const clerkId = extractClerkUserId(req.auth);
+    const profile = await authService.updateUserProfile(clerkId, req.body);
+    res.json({ message: 'Perfil actualizado.', user: profile });
   })
 );
 
