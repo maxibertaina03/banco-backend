@@ -1,4 +1,4 @@
--- ============================================================
+-- 
 --  SOLO CAJA DE AHORRO
 --  Decisión de negocio: Banco Orbital solo opera con "Caja de Ahorro"
 --  como tipo de cuenta. Los demás tipos (Cuenta Corriente, Cuenta
