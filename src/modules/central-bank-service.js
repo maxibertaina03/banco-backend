@@ -22,6 +22,7 @@ const {
   extractCentralAlias,
   toSyncIssues,
 } = require('./central-bank/central-bank-helpers');
+const q = require('./central-bank/central-bank-queries');
 
 const DEFAULT_SYNC_LIMIT = 25;
 const DEFAULT_ACCOUNT_TYPE_NAME = 'Caja de Ahorro';
@@ -59,31 +60,7 @@ async function tryAssignAlias(cbu, candidates, environment) {
 }
 
 async function getSyncAccountById(accountId) {
-  const result = await pool.query(
-    `SELECT
-       c.id,
-       c.persona_id,
-       c.tipo_cuenta_id,
-       c.numero_cuenta,
-       c.cbu,
-       c.alias,
-       c.saldo,
-       c.activa,
-       c.banco_central_registrada,
-       c.created_at,
-       p.nombre,
-       p.apellido,
-       p.dni,
-       p.email,
-       tc.nombre AS tipo_cuenta_nombre
-     FROM cuentas c
-     JOIN personas p ON p.id = c.persona_id
-     JOIN tipos_cuenta tc ON tc.id = c.tipo_cuenta_id
-     WHERE c.id = $1
-     LIMIT 1`,
-    [accountId]
-  );
-
+  const result = await q.selectSyncAccountById(pool, accountId);
   return result.rows[0] || null;
 }
 
@@ -119,13 +96,7 @@ async function updateBankName({ name, environment }) {
     environment: effectiveEnvironment,
     bankName: name,
   });
-  const registry = await pool.query(
-    `UPDATE banco_central_registro
-     SET nombre = $1
-     WHERE environment = $2
-     RETURNING *`,
-    [name, effectiveEnvironment]
-  );
+  const registry = await q.updateBankRegistryName(pool, name, effectiveEnvironment);
 
   return {
     centralBank: centralResponse,
@@ -152,15 +123,7 @@ async function getBankByCode(bankCode, environment) {
 
 async function getLocalRegistration(environment) {
   const effectiveEnvironment = normalizeEnvironment(environment);
-  const result = await pool.query(
-    `SELECT *
-     FROM banco_central_registro
-     WHERE environment = $1
-     ORDER BY created_at DESC
-     LIMIT 1`,
-    [effectiveEnvironment]
-  );
-
+  const result = await q.selectLatestRegistration(pool, effectiveEnvironment);
   return result.rows[0] || null;
 }
 
@@ -216,82 +179,45 @@ async function registerLocalPersonFromCentral(
   try {
     await client.query('BEGIN');
 
-    let personaResult = await client.query(
-      `SELECT *
-       FROM personas
-       WHERE dni = $1
-       LIMIT 1`,
-      [sanitizedPayload.dni]
-    );
+    let personaResult = await q.selectPersonaByDni(client, sanitizedPayload.dni);
 
     let persona;
 
     if (personaResult.rowCount > 0) {
       persona = (
-        await client.query(
-          `UPDATE personas
-           SET nombre = $1,
-               apellido = $2,
-               email = COALESCE($3, email),
-               telefono = COALESCE($4, telefono)
-           WHERE id = $5
-           RETURNING *`,
-          [sanitizedPayload.nombre, sanitizedPayload.apellido, email, telefono, personaResult.rows[0].id]
-        )
+        await q.updatePersonaIdentity(client, {
+          nombre: sanitizedPayload.nombre,
+          apellido: sanitizedPayload.apellido,
+          email,
+          telefono,
+          id: personaResult.rows[0].id,
+        })
       ).rows[0];
     } else {
       persona = (
-        await client.query(
-          `INSERT INTO personas (
-             nombre,
-             apellido,
-             dni,
-             email,
-             telefono,
-             perfil_completo
-           ) VALUES ($1, $2, $3, $4, $5, false)
-           RETURNING *`,
-          [sanitizedPayload.nombre, sanitizedPayload.apellido, sanitizedPayload.dni, email, telefono]
-        )
+        await q.insertPersonaFromCentral(client, {
+          nombre: sanitizedPayload.nombre,
+          apellido: sanitizedPayload.apellido,
+          dni: sanitizedPayload.dni,
+          email,
+          telefono,
+        })
       ).rows[0];
     }
 
-    const roleResult = await client.query(
-      `SELECT id
-       FROM roles
-       WHERE LOWER(nombre) = 'cliente'
-       LIMIT 1`
-    );
+    const roleResult = await q.selectClienteRoleId(client);
 
     if (roleResult.rowCount > 0) {
-      await client.query(
-        `INSERT INTO personas_roles (persona_id, rol_id)
-         VALUES ($1, $2)
-         ON CONFLICT (persona_id, rol_id) DO NOTHING`,
-        [persona.id, roleResult.rows[0].id]
-      );
+      await q.insertPersonaRole(client, persona.id, roleResult.rows[0].id);
     }
 
-    const accountTypeResult = await client.query(
-      `SELECT id
-       FROM tipos_cuenta
-       WHERE nombre = $1
-       ORDER BY id ASC
-       LIMIT 1`,
-      [DEFAULT_ACCOUNT_TYPE_NAME]
-    );
+    const accountTypeResult = await q.selectAccountTypeByName(client, DEFAULT_ACCOUNT_TYPE_NAME);
 
     if (accountTypeResult.rowCount === 0) {
       throw new HttpError(500, 'No se encontró el tipo de cuenta Caja de Ahorro.');
     }
 
-    const cbuOwnerResult = await client.query(
-      `SELECT id, persona_id
-       FROM cuentas
-       WHERE cbu = $1
-       LIMIT 1`,
-      [centralCbu]
-    );
+    const cbuOwnerResult = await q.selectAccountOwnerByCbu(client, centralCbu);
 
     if (cbuOwnerResult.rowCount > 0 && cbuOwnerResult.rows[0].persona_id !== persona.id) {
       throw new HttpError(409, 'El CBU devuelto por Banco Central ya está asociado a otra persona local.');
@@ -300,38 +226,20 @@ async function registerLocalPersonFromCentral(
     let accountResult;
 
     if (cbuOwnerResult.rowCount > 0) {
-      accountResult = await client.query(
-        `SELECT *
-         FROM cuentas
-         WHERE id = $1
-         LIMIT 1`,
-        [cbuOwnerResult.rows[0].id]
-      );
+      accountResult = await q.selectAccountById(client, cbuOwnerResult.rows[0].id);
     } else {
-      accountResult = await client.query(
-        `SELECT *
-         FROM cuentas
-         WHERE persona_id = $1
-         ORDER BY created_at ASC
-         LIMIT 1`,
-        [persona.id]
-      );
+      accountResult = await q.selectFirstAccountByPersona(client, persona.id);
     }
 
     let account;
 
     if (accountResult.rowCount > 0) {
       account = (
-        await client.query(
-          `UPDATE cuentas
-           SET cbu = $1,
-               alias = COALESCE($2, alias),
-               activa = TRUE,
-               banco_central_registrada = TRUE
-           WHERE id = $3
-           RETURNING *`,
-          [centralCbu, centralAlias, accountResult.rows[0].id]
-        )
+        await q.linkAccountToCentral(client, {
+          cbu: centralCbu,
+          alias: centralAlias,
+          id: accountResult.rows[0].id,
+        })
       ).rows[0];
     } else {
       let createdAccount = null;
@@ -342,26 +250,13 @@ async function registerLocalPersonFromCentral(
 
         try {
           createdAccount = (
-            await client.query(
-              `INSERT INTO cuentas (
-                 persona_id,
-                 tipo_cuenta_id,
-                 numero_cuenta,
-                 cbu,
-                 alias,
-                 saldo,
-                 activa,
-                 banco_central_registrada
-               ) VALUES ($1, $2, $3, $4, $5, 0, TRUE, TRUE)
-               RETURNING *`,
-              [
-                persona.id,
-                accountTypeResult.rows[0].id,
-                generateLocalAccountNumber(persona.id),
-                centralCbu,
-                centralAlias,
-              ]
-            )
+            await q.insertAccountFromCentral(client, {
+              personaId: persona.id,
+              tipoCuentaId: accountTypeResult.rows[0].id,
+              numeroCuenta: generateLocalAccountNumber(persona.id),
+              cbu: centralCbu,
+              alias: centralAlias,
+            })
           ).rows[0];
         } catch (error) {
           if (error?.code === '23505') {
@@ -426,7 +321,7 @@ async function assignAlias(cbu, alias, environment) {
     environment,
   });
 
-  await pool.query('UPDATE cuentas SET alias = $1 WHERE cbu = $2', [alias, cbu]);
+  await q.updateAccountAlias(pool, alias, cbu);
 
   return centralResponse;
 }
@@ -459,30 +354,7 @@ async function listSyncAccounts({ environment, limit = DEFAULT_SYNC_LIMIT } = {}
     ? Math.max(1, Math.min(Number(limit), 200))
     : DEFAULT_SYNC_LIMIT;
 
-  const result = await pool.query(
-    `SELECT
-       c.id,
-       c.persona_id,
-       c.tipo_cuenta_id,
-       c.numero_cuenta,
-       c.cbu,
-       c.alias,
-       c.saldo,
-       c.activa,
-       c.banco_central_registrada,
-       c.created_at,
-       p.nombre,
-       p.apellido,
-       p.dni,
-       p.email,
-       tc.nombre AS tipo_cuenta_nombre
-     FROM cuentas c
-     JOIN personas p ON p.id = c.persona_id
-     JOIN tipos_cuenta tc ON tc.id = c.tipo_cuenta_id
-     ORDER BY c.created_at DESC
-     LIMIT $1`,
-    [safeLimit]
-  );
+  const result = await q.selectSyncAccounts(pool, safeLimit);
 
   return result.rows.map((account) => {
     const issues = toSyncIssues(account);
@@ -556,15 +428,11 @@ async function syncAccount(accountId, environment) {
     aliasAttempt = await tryAssignAlias(centralCbu, aliasCandidates, environment);
   }
 
-  const updatedAccount = await pool.query(
-    `UPDATE cuentas
-     SET cbu = $1,
-         alias = COALESCE($2, alias),
-         banco_central_registrada = TRUE
-     WHERE id = $3
-     RETURNING *`,
-    [centralCbu, aliasAttempt.assignedAlias, accountId]
-  );
+  const updatedAccount = await q.updateAccountSyncResult(pool, {
+    cbu: centralCbu,
+    alias: aliasAttempt.assignedAlias,
+    accountId,
+  });
 
   const warnings = [...aliasAttempt.warnings];
 
@@ -652,11 +520,8 @@ async function syncIncomingTransactions({ environment, minutes = 30, personaCbus
 
   const cbuResult =
     Array.isArray(personaCbus) && personaCbus.length > 0
-      ? await pool.query(
-          'SELECT id, cbu FROM cuentas WHERE cbu = ANY($1::text[]) AND activa = TRUE',
-          [personaCbus]
-        )
-      : await pool.query('SELECT id, cbu FROM cuentas WHERE cbu IS NOT NULL AND activa = TRUE');
+      ? await q.selectActiveAccountsByCbus(pool, personaCbus)
+      : await q.selectAllActiveAccountsWithCbu(pool);
 
   const ourCbus = new Map(cbuResult.rows.map((row) => [row.cbu, row]));
 
@@ -672,10 +537,7 @@ async function syncIncomingTransactions({ environment, minutes = 30, personaCbus
 
   // Single batch query instead of N individual queries
   const candidateIds = candidates.map((tx) => tx._txId);
-  const existingResult = await pool.query(
-    'SELECT central_transaction_id FROM transacciones WHERE central_transaction_id = ANY($1) AND canal = $2',
-    [candidateIds, 'interbancaria_entrante']
-  );
+  const existingResult = await q.selectExistingIncomingTxIds(pool, candidateIds);
   const existingIds = new Set(existingResult.rows.map((r) => r.central_transaction_id));
 
   const results = [];
@@ -700,30 +562,23 @@ async function syncIncomingTransactions({ environment, minutes = 30, personaCbus
     try {
       await client.query('BEGIN');
 
-      const typeResult = await client.query(
-        "SELECT id FROM tipos_transaccion WHERE LOWER(nombre) = 'transferencia' LIMIT 1"
-      );
+      const typeResult = await q.selectTransferTypeId(client);
 
       if (typeResult.rowCount === 0) {
         throw new HttpError(500, 'No se encontró el tipo de transacción transferencia.');
       }
 
-      await client.query('UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2', [importe, destAccount.id]);
+      await q.creditAccount(client, importe, destAccount.id);
 
-      await client.query(
-        `INSERT INTO transacciones (
-           tipo_transaccion_id,
-           cuenta_destino_id,
-           monto,
-           estado,
-           central_transaction_id,
-           canal,
-           cbu_origen,
-           cbu_destino,
-           descripcion
-         ) VALUES ($1, $2, $3, 'completada', $4, 'interbancaria_entrante', $5, $6, $7)`,
-        [typeResult.rows[0].id, destAccount.id, importe, txId, tx.cbuOrigen, cbuDestino, senderName]
-      );
+      await q.insertIncomingTransaction(client, {
+        typeId: typeResult.rows[0].id,
+        destAccountId: destAccount.id,
+        importe,
+        txId,
+        cbuOrigen: tx.cbuOrigen,
+        cbuDestino,
+        senderName,
+      });
 
       await client.query('COMMIT');
       results.push({ id: txId, status: 'synced', importe, cbuDestino, senderName });
@@ -767,16 +622,7 @@ async function saveBankRegistration(centralResponse) {
     return null;
   }
 
-  const result = await pool.query(
-    `INSERT INTO banco_central_registro (bank_id, bank_code, nombre, environment)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (bank_id, environment)
-     DO UPDATE SET
-       bank_code = EXCLUDED.bank_code,
-       nombre = EXCLUDED.nombre
-     RETURNING *`,
-    [bankId, bankCode, name, environment]
-  );
+  const result = await q.upsertBankRegistration(pool, { bankId, bankCode, name, environment });
 
   return result.rows[0];
 }
