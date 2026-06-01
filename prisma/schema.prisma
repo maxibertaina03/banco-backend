@@ -204,9 +204,12 @@ model Transaccion {
   cbuDestino           String?  @map("cbu_destino")
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tipoTransaccion TipoTransaccion @relation(fields: [tipoTransaccionId], references: [id])
-  cuentaOrigen    Cuenta?         @relation("origen", fields: [cuentaOrigenId], references: [id])
-  cuentaDestino   Cuenta?         @relation("destino", fields: [cuentaDestinoId], references: [id])
+  // ON DELETE NO ACTION para reflejar el schema.sql original (sin ON DELETE
+  // explícito). Evita que borrar una cuenta/tipo deje transacciones en estado
+  // inconsistente: la operación falla si hay transacciones que la referencian.
+  tipoTransaccion TipoTransaccion @relation(fields: [tipoTransaccionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cuentaOrigen    Cuenta?         @relation("origen", fields: [cuentaOrigenId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cuentaDestino   Cuenta?         @relation("destino", fields: [cuentaDestinoId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([tipoTransaccionId])
   @@index([cuentaOrigenId])

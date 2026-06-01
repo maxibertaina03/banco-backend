@@ -10,6 +10,11 @@
     "db:setup": "node scripts/db-setup.js all",
     "db:schema": "node scripts/db-setup.js schema",
     "db:seed": "node scripts/db-setup.js seed",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "prisma:baseline": "prisma migrate resolve --applied 0_init && prisma migrate resolve --applied 1_security_hardening",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui"
