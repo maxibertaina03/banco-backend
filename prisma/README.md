@@ -27,13 +27,19 @@ dependan del contrato plano.
 
 ## Workflow
 
+> 🔌 **Supabase: conexión directa para migrar.** Todos los comandos `prisma migrate`
+> (incluido `prisma:baseline`) necesitan la **conexión DIRECTA (puerto 5432)**. El
+> pooler de transacciones (6543) NO soporta migraciones. Antes de correrlos, poné en
+> `DATABASE_URL` la cadena "Direct connection" de Supabase (Project Settings → Database
+> → Connection string → Direct connection). La app puede seguir usando el pooler.
+
 ### 1. Base existente (Supabase de prod) → baseline una sola vez
 
 La base ya tiene todo aplicado (vía las migraciones legacy en `/migrations`). Para
 que Prisma la reconozca sin re-ejecutar nada:
 
 ```bash
-# Con DATABASE_URL apuntando a la base existente:
+# Con DATABASE_URL = conexión DIRECTA (5432) a la base existente:
 npm run prisma:baseline      # marca 0_init y 1_security_hardening como YA aplicadas
 ```
 

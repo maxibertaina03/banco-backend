@@ -7,6 +7,10 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // IMPORTANTE (Supabase): para correr migraciones (`prisma migrate` / baseline)
+  // DATABASE_URL debe apuntar a la conexión DIRECTA (puerto 5432). El pooler de
+  // transacciones (6543) NO soporta las operaciones de migración. La app sí puede
+  // usar el pooler. Ver prisma/README.md.
   url      = env("DATABASE_URL")
 }
 
