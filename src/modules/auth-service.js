@@ -1,14 +1,24 @@
 // Service de autenticación con Clerk + sincronización de usuarios.
 //
 // Patrón: factory `createAuthService({ pool, clerkApi })` para tests con
-// dependency injection. El `module.exports` por defecto usa la instancia real
-// (igual que transacciones-service), así que los consumidores (auth-router,
-// clerk-webhook-router) no necesitan cambios.
+// dependency injection. El `module.exports` por defecto usa la instancia real,
+// así que los consumidores (auth-router, clerk-webhook-router) no cambian.
+//
+// El SQL vive en ./auth/auth-queries.js y las normalizaciones puras en
+// ./auth/auth-helpers.js. Este archivo solo orquesta: decide el flujo, maneja
+// las transacciones (BEGIN/COMMIT/ROLLBACK) y traduce errores.
 
 const axios = require('axios');
 const HttpError = require('../utils/http-error');
 const env = require('../config/env');
 const realPool = require('../db/pool');
+const q = require('./auth/auth-queries');
+const {
+  getPrimaryEmail,
+  normalizeOptionalText,
+  normalizePhone,
+  mapProvisionError,
+} = require('./auth/auth-helpers');
 
 const realClerkApi = axios.create({
   baseURL: 'https://api.clerk.com/v1',
@@ -19,44 +29,12 @@ const realClerkApi = axios.create({
 });
 
 function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
-  // ── Helpers internos puros ────────────────────────────────────────────────
-
-  function getPrimaryEmail(clerkUser) {
-    const addresses = clerkUser.email_addresses || [];
-    const primaryId = clerkUser.primary_email_address_id;
-    const primary =
-      addresses.find((address) => address.id === primaryId) ||
-      addresses.find((address) => address.email_address);
-    return primary?.email_address?.trim().toLowerCase() || null;
-  }
-
-  function normalizeOptionalText(value) {
-    const trimmed = value?.trim();
-    return trimmed || null;
-  }
-
-  function normalizePhone(phoneNumbers = []) {
-    const phone = phoneNumbers.find((item) => item.phone_number)?.phone_number || null;
-    return phone;
-  }
-
-  function mapProvisionError(error) {
-    if (error instanceof HttpError) return error;
-    if (error.code === '23505') {
-      return new HttpError(409, 'No se pudo aprovisionar automáticamente el usuario por un conflicto de datos.');
-    }
-    return error;
-  }
+  // ── Helpers que necesitan deps (pool/clerkApi) ────────────────────────────
 
   async function ensureClienteRole(client, personaId) {
-    const roleResult = await client.query('SELECT id FROM roles WHERE nombre = $1 LIMIT 1', ['cliente']);
+    const roleResult = await q.selectRoleByName(client, 'cliente');
     if (roleResult.rowCount === 0) return;
-    await client.query(
-      `INSERT INTO personas_roles (persona_id, rol_id)
-       VALUES ($1, $2)
-       ON CONFLICT (persona_id, rol_id) DO NOTHING`,
-      [personaId, roleResult.rows[0].id]
-    );
+    await q.insertPersonaRole(client, personaId, roleResult.rows[0].id);
   }
 
   async function fetchClerkUser(clerkId) {
@@ -75,14 +53,7 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
    * localmente, lo aprovisiona desde Clerk.
    */
   async function getOrCreateUser(clerkId) {
-    const result = await pool.query(
-      `SELECT u.*, p.nombre, p.apellido, p.email, p.perfil_completo
-       FROM usuarios u
-       JOIN personas p ON u.persona_id = p.id
-       WHERE u.clerk_id = $1 AND u.activo = true`,
-      [clerkId]
-    );
-
+    const result = await q.selectActiveUserWithPersona(pool, clerkId);
     if (result.rowCount > 0) {
       return result.rows[0];
     }
@@ -94,36 +65,24 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
    * Se da por supuesto que la persona ya existe.
    */
   async function createUserWithClerk(personaId, clerkId) {
-    const personaResult = await pool.query('SELECT * FROM personas WHERE id = $1', [personaId]);
+    const personaResult = await q.selectPersonaById(pool, personaId);
     if (personaResult.rowCount === 0) {
       throw new HttpError(404, `No existe la persona con id ${personaId}.`);
     }
 
-    const existingByPersona = await pool.query('SELECT * FROM usuarios WHERE persona_id = $1', [personaId]);
+    const existingByPersona = await q.selectUsuarioByPersonaId(pool, personaId);
 
-    const existingUser = await pool.query('SELECT * FROM usuarios WHERE clerk_id = $1', [clerkId]);
+    const existingUser = await q.selectUsuarioByClerkId(pool, clerkId);
     if (existingUser.rowCount > 0 && existingUser.rows[0].persona_id !== personaId) {
       throw new HttpError(400, 'Ya existe un usuario con ese clerk_id.');
     }
 
     if (existingByPersona.rowCount > 0) {
-      const result = await pool.query(
-        `UPDATE usuarios
-         SET clerk_id = $1,
-             activo = true
-         WHERE persona_id = $2
-         RETURNING *`,
-        [clerkId, personaId]
-      );
+      const result = await q.reassignClerkIdToPersona(pool, clerkId, personaId);
       return result.rows[0];
     }
 
-    const result = await pool.query(
-      `INSERT INTO usuarios (persona_id, clerk_id, activo)
-       VALUES ($1, $2, true)
-       RETURNING *`,
-      [personaId, clerkId]
-    );
+    const result = await q.insertUsuario(pool, personaId, clerkId);
     return result.rows[0];
   }
 
@@ -132,25 +91,7 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
    * fuerza aprovisionamiento y reintenta una sola vez.
    */
   async function getUserProfile(clerkId) {
-    const result = await pool.query(
-      `SELECT
-         u.id,
-         u.persona_id,
-         u.activo,
-         u.created_at as usuario_created_at,
-         p.nombre,
-         p.apellido,
-         p.dni,
-         p.email,
-         p.telefono,
-         p.fecha_nacimiento,
-         p.perfil_completo,
-         p.created_at as persona_created_at
-       FROM usuarios u
-       JOIN personas p ON u.persona_id = p.id
-       WHERE u.clerk_id = $1 AND u.activo = true`,
-      [clerkId]
-    );
+    const result = await q.selectUserProfile(pool, clerkId);
 
     if (result.rowCount === 0) {
       await getOrCreateUser(clerkId);
@@ -158,25 +99,14 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
     }
 
     const user = result.rows[0];
-
-    const rolesResult = await pool.query(
-      `SELECT r.* FROM personas_roles pr
-       JOIN roles r ON r.id = pr.rol_id
-       WHERE pr.persona_id = $1`,
-      [user.persona_id]
-    );
-
+    const rolesResult = await q.selectRolesByPersona(pool, user.persona_id);
     user.roles = rolesResult.rows;
     return user;
   }
 
   /** Desactiva un usuario (logout "suave"). */
   async function deactivateUser(clerkId) {
-    const result = await pool.query(
-      'UPDATE usuarios SET activo = false WHERE clerk_id = $1 RETURNING *',
-      [clerkId]
-    );
-
+    const result = await q.deactivateUserReturning(pool, clerkId);
     if (result.rowCount === 0) {
       throw new HttpError(404, 'Usuario no encontrado.');
     }
@@ -203,45 +133,13 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
     try {
       await client.query('BEGIN');
 
-      const existingUser = await client.query(
-        `SELECT u.id, u.persona_id
-         FROM usuarios u
-         WHERE u.clerk_id = $1
-         LIMIT 1`,
-        [clerkId]
-      );
+      const existingUser = await q.selectUsuarioIdAndPersona(client, clerkId);
 
       if (existingUser.rowCount > 0) {
         const personaId = existingUser.rows[0].persona_id;
 
-        await client.query(
-          `UPDATE usuarios
-           SET activo = true
-           WHERE id = $1`,
-          [existingUser.rows[0].id]
-        );
-
-        await client.query(
-          `UPDATE personas
-           SET nombre = CASE
-                 WHEN perfil_completo = false THEN COALESCE($1, nombre)
-                 ELSE nombre
-               END,
-               apellido = CASE
-                 WHEN perfil_completo = false THEN COALESCE($2, apellido)
-                 ELSE apellido
-               END,
-               email = CASE
-                 WHEN perfil_completo = false THEN COALESCE($3, email)
-                 ELSE email
-               END,
-               telefono = CASE
-                 WHEN perfil_completo = false THEN COALESCE($4, telefono)
-                 ELSE telefono
-               END
-           WHERE id = $5`,
-          [firstName, lastName, email, phone, personaId]
-        );
+        await q.reactivateUsuarioById(client, existingUser.rows[0].id);
+        await q.mergePersonaIfIncomplete(client, { firstName, lastName, email, phone, personaId });
 
         await client.query('COMMIT');
         return;
@@ -249,37 +147,18 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
 
       let personaId;
       const existingPersona = email
-        ? await client.query('SELECT id FROM personas WHERE email = $1 LIMIT 1', [email])
+        ? await q.selectPersonaIdByEmail(client, email)
         : { rowCount: 0 };
 
       if (existingPersona.rowCount > 0) {
         personaId = existingPersona.rows[0].id;
-        await client.query(
-          `UPDATE personas
-           SET nombre = COALESCE(NULLIF(nombre, ''), $1),
-               apellido = COALESCE(NULLIF(apellido, ''), $2),
-               telefono = COALESCE(telefono, $3)
-           WHERE id = $4`,
-          [firstName, lastName, phone, personaId]
-        );
+        await q.fillEmptyPersonaFields(client, { firstName, lastName, phone, personaId });
       } else {
-        const createdPersona = await client.query(
-          `INSERT INTO personas (nombre, apellido, email, telefono, perfil_completo)
-           VALUES ($1, $2, $3, $4, false)
-           RETURNING id`,
-          [firstName, lastName, email, phone]
-        );
+        const createdPersona = await q.insertPersonaReturningId(client, { firstName, lastName, email, phone });
         personaId = createdPersona.rows[0].id;
       }
 
-      await client.query(
-        `INSERT INTO usuarios (persona_id, clerk_id, activo)
-         VALUES ($1, $2, true)
-         ON CONFLICT (clerk_id) DO UPDATE
-         SET activo = true`,
-        [personaId, clerkId]
-      );
-
+      await q.upsertUsuarioByClerkId(client, personaId, clerkId);
       await ensureClienteRole(client, personaId);
       await client.query('COMMIT');
     } catch (error) {
@@ -292,12 +171,7 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
 
   async function deactivateClerkUserFromWebhook(clerkId) {
     if (!clerkId) return;
-    await pool.query(
-      `UPDATE usuarios
-       SET activo = false
-       WHERE clerk_id = $1`,
-      [clerkId]
-    );
+    await q.deactivateUser(pool, clerkId);
   }
 
   async function provisionUserFromClerk(clerkId) {
@@ -309,23 +183,10 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
     try {
       await client.query('BEGIN');
 
-      const existingUserByClerk = await client.query(
-        `SELECT u.*, p.nombre, p.apellido, p.email, p.perfil_completo
-         FROM usuarios u
-         JOIN personas p ON p.id = u.persona_id
-         WHERE u.clerk_id = $1`,
-        [clerkId]
-      );
+      const existingUserByClerk = await q.selectUserWithPersonaAnyState(client, clerkId);
 
       if (existingUserByClerk.rowCount > 0) {
-        const reactivated = await client.query(
-          `UPDATE usuarios
-           SET activo = true
-           WHERE clerk_id = $1
-           RETURNING *`,
-          [clerkId]
-        );
-
+        const reactivated = await q.reactivateUsuarioByClerkId(client, clerkId);
         await client.query('COMMIT');
         return {
           ...existingUserByClerk.rows[0],
@@ -339,45 +200,22 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
 
       let personaId;
       const existingPersona = email
-        ? await client.query('SELECT * FROM personas WHERE email = $1', [email])
+        ? await q.selectPersonaByEmail(client, email)
         : { rowCount: 0 };
 
       if (existingPersona.rowCount > 0) {
         personaId = existingPersona.rows[0].id;
-        await client.query(
-          `UPDATE personas
-           SET nombre = COALESCE(NULLIF(nombre, ''), $1),
-               apellido = COALESCE(NULLIF(apellido, ''), $2),
-               telefono = COALESCE(telefono, $3)
-           WHERE id = $4`,
-          [firstName, lastName, phone, personaId]
-        );
+        await q.fillEmptyPersonaFields(client, { firstName, lastName, phone, personaId });
       } else {
-        const createdPersona = await client.query(
-          `INSERT INTO personas (nombre, apellido, email, telefono, perfil_completo)
-           VALUES ($1, $2, $3, $4, false)
-           RETURNING *`,
-          [firstName, lastName, email, phone]
-        );
+        const createdPersona = await q.insertPersonaReturningAll(client, { firstName, lastName, email, phone });
         personaId = createdPersona.rows[0].id;
       }
 
-      const createdUser = await client.query(
-        `INSERT INTO usuarios (persona_id, clerk_id, activo)
-         VALUES ($1, $2, true)
-         RETURNING *`,
-        [personaId, clerkId]
-      );
+      const createdUser = await q.insertUsuario(client, personaId, clerkId);
 
       await ensureClienteRole(client, personaId);
 
-      const fullUser = await client.query(
-        `SELECT u.*, p.nombre, p.apellido, p.email, p.perfil_completo
-         FROM usuarios u
-         JOIN personas p ON p.id = u.persona_id
-         WHERE u.id = $1`,
-        [createdUser.rows[0].id]
-      );
+      const fullUser = await q.selectFullUserById(client, createdUser.rows[0].id);
 
       await client.query('COMMIT');
       return fullUser.rows[0];
@@ -411,26 +249,7 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
     values.push(clerkId);
     const clerkIdParam = `$${values.length}`;
 
-    const result = await pool.query(
-      `UPDATE personas p
-       SET ${updates.join(', ')}
-       FROM usuarios u
-       WHERE u.persona_id = p.id
-         AND u.clerk_id = ${clerkIdParam}
-         AND u.activo = true
-       RETURNING
-         u.id,
-         u.persona_id,
-         u.activo,
-         p.nombre,
-         p.apellido,
-         p.dni,
-         p.email,
-         p.telefono,
-         p.fecha_nacimiento,
-         p.perfil_completo`,
-      values
-    );
+    const result = await q.updatePersonaPartial(pool, updates.join(', '), clerkIdParam, values);
 
     if (result.rowCount === 0) {
       throw new HttpError(404, 'Usuario no encontrado o inactivo.');
@@ -439,41 +258,7 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
   }
 
   async function completeUserProfile(clerkId, payload) {
-    const result = await pool.query(
-      `UPDATE personas p
-       SET nombre = $1,
-           apellido = $2,
-           dni = $3,
-           email = $4,
-           telefono = $5,
-           fecha_nacimiento = $6,
-           perfil_completo = true
-       FROM usuarios u
-       WHERE u.persona_id = p.id
-         AND u.clerk_id = $7
-         AND u.activo = true
-       RETURNING
-         u.id,
-         u.persona_id,
-         u.activo,
-         p.nombre,
-         p.apellido,
-         p.dni,
-         p.email,
-         p.telefono,
-         p.fecha_nacimiento,
-         p.perfil_completo`,
-      [
-        payload.nombre,
-        payload.apellido,
-        payload.dni,
-        payload.email,
-        payload.telefono,
-        payload.fecha_nacimiento,
-        clerkId,
-      ]
-    );
-
+    const result = await q.completeProfile(pool, payload, clerkId);
     if (result.rowCount === 0) {
       throw new HttpError(404, 'Usuario no encontrado o inactivo.');
     }

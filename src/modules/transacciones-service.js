@@ -15,6 +15,8 @@ const { writeAuditLog: realWriteAuditLog } = require('../utils/audit');
 const HttpError = require('../utils/http-error');
 const { isInternalUser } = require('../utils/access-control');
 const { createTTLCache } = require('../utils/ttl-cache');
+const q = require('./transacciones/transacciones-queries');
+const { findStringInPayload, findFullNameInPayload } = require('./transacciones/transacciones-helpers');
 
 function createTransaccionesService({
   pool = realPool,
@@ -28,54 +30,10 @@ function createTransaccionesService({
   // puede tener su propia cache aislada.
   const resolverCache = createTTLCache(resolverCacheMaxEntries, resolverCacheTtlMs);
 
-  // ── Helpers internos ──────────────────────────────────────────────────────
-
-  function findStringInPayload(payload, keys) {
-    if (!payload || typeof payload !== 'object') return null;
-
-    const queue = [payload];
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (!current || typeof current !== 'object') continue;
-
-      for (const key of keys) {
-        const value = current[key];
-        if (typeof value === 'string' && value.trim()) {
-          return value.trim();
-        }
-      }
-      for (const value of Object.values(current)) {
-        if (value && typeof value === 'object') queue.push(value);
-      }
-    }
-    return null;
-  }
-
-  function findFullNameInPayload(payload) {
-    if (!payload || typeof payload !== 'object') return null;
-
-    const queue = [payload];
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (!current || typeof current !== 'object') continue;
-
-      const name = [current.nombre, current.apellido]
-        .filter((v) => typeof v === 'string' && v.trim())
-        .map((v) => v.trim())
-        .join(' ');
-      if (name) return name;
-
-      for (const value of Object.values(current)) {
-        if (value && typeof value === 'object') queue.push(value);
-      }
-    }
-    return null;
-  }
+  // ── Helpers internos (orquestan queries + reglas de negocio) ───────────────
 
   async function getTransferTypeId(client) {
-    const result = await client.query(
-      "SELECT id FROM tipos_transaccion WHERE lower(nombre) = 'transferencia' LIMIT 1"
-    );
+    const result = await q.selectTransferTypeId(client);
     if (result.rowCount === 0) {
       throw new HttpError(500, 'No se encontró el tipo de transacción "transferencia".');
     }
@@ -85,34 +43,17 @@ function createTransaccionesService({
   // Cargas con FOR UPDATE: bloquean la fila durante la transacción para
   // evitar carreras saldo↔transferencia concurrente.
   async function getLocalAccountById(client, accountId) {
-    const result = await client.query(
-      `SELECT c.*, p.nombre, p.apellido
-       FROM cuentas c
-       JOIN personas p ON p.id = c.persona_id
-       WHERE c.id = $1
-       FOR UPDATE`,
-      [accountId]
-    );
+    const result = await q.selectAccountByIdForUpdate(client, accountId);
     return result.rows[0] || null;
   }
 
   async function getLocalAccountByCbu(client, cbu) {
-    const result = await client.query(
-      `SELECT c.*, p.nombre, p.apellido
-       FROM cuentas c
-       JOIN personas p ON p.id = c.persona_id
-       WHERE c.cbu = $1
-       FOR UPDATE`,
-      [cbu]
-    );
+    const result = await q.selectAccountByCbuForUpdate(client, cbu);
     return result.rows[0] || null;
   }
 
   async function validateTransferLimit(client, account, amount) {
-    const accountTypeResult = await client.query(
-      'SELECT limite_transferencia FROM tipos_cuenta WHERE id = $1',
-      [account.tipo_cuenta_id]
-    );
+    const accountTypeResult = await q.selectAccountTransferLimit(client, account.tipo_cuenta_id);
     const transferLimit = accountTypeResult.rows[0]?.limite_transferencia;
     if (transferLimit !== null && transferLimit !== undefined && amount > Number(transferLimit)) {
       throw new HttpError(400, 'El monto supera el límite de transferencia permitido para la cuenta.');
@@ -195,39 +136,24 @@ function createTransaccionesService({
     const canal = localDestination ? 'local' : 'interbancaria_saliente';
 
     if (finalEstado === 'completada') {
-      await client.query('UPDATE cuentas SET saldo = saldo - $1 WHERE id = $2', [amount, origin.id]);
+      await q.debitAccount(client, amount, origin.id);
       if (localDestination) {
-        await client.query('UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2', [amount, localDestination.id]);
+        await q.creditAccount(client, amount, localDestination.id);
       }
     }
 
-    const created = await client.query(
-      `INSERT INTO transacciones (
-        tipo_transaccion_id,
-        cuenta_origen_id,
-        cuenta_destino_id,
-        monto,
-        descripcion,
-        estado,
-        central_transaction_id,
-        canal,
-        cbu_origen,
-        cbu_destino
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING *`,
-      [
-        transferTypeId,
-        origin.id,
-        localDestination?.id || null,
-        amount,
-        description,
-        finalEstado,
-        centralTransactionId,
-        canal,
-        origin.cbu,
-        localDestination?.cbu || effectiveDestinationCbu,
-      ]
-    );
+    const created = await q.insertTransferTransaction(client, [
+      transferTypeId,
+      origin.id,
+      localDestination?.id || null,
+      amount,
+      description,
+      finalEstado,
+      centralTransactionId,
+      canal,
+      origin.cbu,
+      localDestination?.cbu || effectiveDestinationCbu,
+    ]);
 
     await writeAuditLog(client, {
       usuarioId: currentUser?.id,
@@ -270,36 +196,18 @@ function createTransaccionesService({
 
   async function listForUser(currentUser) {
     if (isInternalUser(currentUser)) {
-      const result = await pool.query(
-        'SELECT * FROM transacciones ORDER BY created_at DESC LIMIT 100'
-      );
+      const result = await q.selectAllTransactions(pool);
       return result.rows;
     }
 
-    const result = await pool.query(
-      `SELECT t.*
-       FROM transacciones t
-       JOIN cuentas origen ON origen.id = t.cuenta_origen_id
-       LEFT JOIN cuentas destino ON destino.id = t.cuenta_destino_id
-       WHERE origen.persona_id = $1 OR destino.persona_id = $1
-       ORDER BY t.created_at DESC
-       LIMIT 100`,
-      [currentUser.persona_id]
-    );
+    const result = await q.selectTransactionsForPersona(pool, currentUser.persona_id);
     return result.rows;
   }
 
   async function getByIdForUser(id, currentUser) {
     const result = isInternalUser(currentUser)
-      ? await pool.query('SELECT * FROM transacciones WHERE id = $1', [id])
-      : await pool.query(
-          `SELECT t.*
-           FROM transacciones t
-           JOIN cuentas origen ON origen.id = t.cuenta_origen_id
-           LEFT JOIN cuentas destino ON destino.id = t.cuenta_destino_id
-           WHERE t.id = $1 AND (origen.persona_id = $2 OR destino.persona_id = $2)`,
-          [id, currentUser.persona_id]
-        );
+      ? await q.selectTransactionById(pool, id)
+      : await q.selectTransactionByIdForPersona(pool, id, currentUser.persona_id);
 
     if (result.rowCount === 0) {
       throw new HttpError(404, `No existe la transacción con id ${id}.`);
@@ -397,13 +305,11 @@ function createTransaccionesService({
 
         let externalRecipient = null;
         if (destinatario_id) {
-          const destinatarioResult = await client.query(
-            `SELECT *
-             FROM destinatarios
-             WHERE id = $1
-               AND ($2::boolean = TRUE OR persona_id = $3)
-             LIMIT 1`,
-            [destinatario_id, isInternalUser(currentUser), currentUser.persona_id]
+          const destinatarioResult = await q.selectDestinatario(
+            client,
+            destinatario_id,
+            isInternalUser(currentUser),
+            currentUser.persona_id
           );
 
           if (destinatarioResult.rowCount === 0) {
@@ -450,9 +356,7 @@ function createTransaccionesService({
   // Helper paralelo a getTransferTypeId pero para depósitos. Cacheable porque
   // los tipos no cambian, pero por simplicidad lo dejamos como query.
   async function getDepositTypeId(client) {
-    const result = await client.query(
-      "SELECT id FROM tipos_transaccion WHERE lower(nombre) = 'deposito' LIMIT 1"
-    );
+    const result = await q.selectDepositTypeId(client);
     if (result.rowCount === 0) {
       throw new HttpError(500, 'No se encontró el tipo de transacción "deposito".');
     }
@@ -490,27 +394,16 @@ function createTransaccionesService({
       const amount = Number(monto);
 
       // Acreditar saldo.
-      await client.query(
-        'UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2',
-        [amount, destination.id]
-      );
+      await q.creditAccount(client, amount, destination.id);
 
       // Registrar la transacción. cuenta_origen_id = NULL (efectivo físico).
-      const created = await client.query(
-        `INSERT INTO transacciones (
-          tipo_transaccion_id,
-          cuenta_origen_id,
-          cuenta_destino_id,
-          monto,
-          descripcion,
-          estado,
-          canal,
-          cbu_origen,
-          cbu_destino
-        ) VALUES ($1, NULL, $2, $3, $4, 'completada', 'deposito_efectivo', NULL, $5)
-        RETURNING *`,
-        [transferTypeId, destination.id, amount, descripcion, destination.cbu]
-      );
+      const created = await q.insertDepositTransaction(client, {
+        transferTypeId,
+        destinationId: destination.id,
+        amount,
+        descripcion,
+        destinationCbu: destination.cbu,
+      });
 
       await writeAuditLog(client, {
         usuarioId: currentUser?.id,
@@ -534,10 +427,7 @@ function createTransaccionesService({
       throw new HttpError(400, 'No se pudo determinar la persona asociada a tu usuario.');
     }
 
-    const cbuResult = await pool.query(
-      'SELECT cbu FROM cuentas WHERE persona_id = $1 AND cbu IS NOT NULL AND activa = TRUE',
-      [currentUser.persona_id]
-    );
+    const cbuResult = await q.selectActiveCbusForPersona(pool, currentUser.persona_id);
     const personaCbus = cbuResult.rows.map((r) => r.cbu);
 
     if (personaCbus.length === 0) {

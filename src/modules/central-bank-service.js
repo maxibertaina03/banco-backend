@@ -12,99 +12,23 @@ const {
 } = require('./central-bank-client');
 const { writeAuditLog } = require('../utils/audit');
 const { createTTLCache } = require('../utils/ttl-cache');
+const {
+  generateLocalAccountNumber,
+  sanitizeCentralText,
+  sanitizeDni,
+  buildAliasCandidates,
+  extractCentralCbu,
+  extractCentralTransactionId,
+  extractCentralAlias,
+  toSyncIssues,
+} = require('./central-bank/central-bank-helpers');
 
 const DEFAULT_SYNC_LIMIT = 25;
-const MIN_ALIAS_LENGTH = 6;
-const MAX_ALIAS_LENGTH = 20;
 const DEFAULT_ACCOUNT_TYPE_NAME = 'Caja de Ahorro';
 
 // Cache for listBanks — the bank list changes only when banks register/rename.
 // Max 10 entries (one per environment variant), TTL 5 minutes.
 const banksCache = createTTLCache(10, 5 * 60_000);
-
-function generateLocalAccountNumber(personaId) {
-  const personaDigits = String(personaId || '').replace(/\D+/g, '').slice(-6).padStart(6, '0');
-  const timestampDigits = Date.now().toString().slice(-6);
-  return `${personaDigits}${timestampDigits}`.slice(0, 12);
-}
-
-function sanitizeCentralText(value) {
-  if (!value) {
-    return null;
-  }
-
-  const normalized = String(value)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^A-Za-z0-9\s'-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return normalized || null;
-}
-
-function sanitizeDni(value) {
-  if (!value) {
-    return null;
-  }
-
-  const digits = String(value).replace(/\D+/g, '');
-  return digits || null;
-}
-
-function cleanAliasText(value) {
-  if (!value) {
-    return null;
-  }
-
-  const normalized = value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9.-]+/g, '.')
-    .replace(/\.{2,}/g, '.')
-    .replace(/^[.-]+|[.-]+$/g, '');
-
-  return normalized || null;
-}
-
-function normalizeAliasValue(value) {
-  const normalized = cleanAliasText(value)?.slice(0, MAX_ALIAS_LENGTH) || null;
-
-  if (!normalized || normalized.length < MIN_ALIAS_LENGTH) {
-    return null;
-  }
-
-  return normalized;
-}
-
-function createAliasVariant(parts) {
-  const normalizedParts = parts
-    .map((part) => cleanAliasText(String(part || '').replace(/\./g, '')))
-    .filter(Boolean);
-
-  if (normalizedParts.length === 0) {
-    return null;
-  }
-
-  return normalizeAliasValue(normalizedParts.join('.'));
-}
-
-function buildAliasCandidates(account, bankName) {
-  const suffix = account.numero_cuenta?.slice(-4) || account.cbu?.slice(-4) || '0001';
-  const bankSlug = normalizeAliasValue(bankName || 'orbital') || 'orbital';
-
-  const candidates = [
-    normalizeAliasValue(account.alias),
-    createAliasVariant([account.nombre, account.apellido]),
-    createAliasVariant([account.nombre, suffix]),
-    createAliasVariant([account.nombre, account.apellido, suffix]),
-    createAliasVariant([account.nombre, bankSlug]),
-    createAliasVariant([account.nombre, suffix, bankSlug]),
-  ].filter(Boolean);
-
-  return Array.from(new Set(candidates));
-}
 
 async function tryAssignAlias(cbu, candidates, environment) {
   const warnings = [];
@@ -132,127 +56,6 @@ async function tryAssignAlias(cbu, candidates, environment) {
     aliasResponse: null,
     warnings,
   };
-}
-
-function extractCentralCbu(payload) {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-
-  const queue = [payload];
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-
-    if (!current || typeof current !== 'object') {
-      continue;
-    }
-
-    if (typeof current.cbu === 'string' && current.cbu.trim()) {
-      return current.cbu.trim();
-    }
-
-    for (const value of Object.values(current)) {
-      if (value && typeof value === 'object') {
-        queue.push(value);
-      }
-    }
-  }
-
-  return null;
-}
-
-function extractCentralTransactionId(payload) {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-
-  const queue = [payload];
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-
-    if (!current || typeof current !== 'object') {
-      continue;
-    }
-
-    // API docs: POST /transactions returns "transaccionId" (Spanish spelling)
-    // GET /transactions returns "_id"
-    const candidates = [
-      current.transaccionId,
-      current.transactionId,
-      current.transaction_id,
-      current._id,
-      current.transferId,
-      current.transfer_id,
-      current.id,
-    ];
-
-    for (const candidate of candidates) {
-      if (typeof candidate === 'string' && candidate.trim()) {
-        return candidate.trim();
-      }
-    }
-
-    for (const value of Object.values(current)) {
-      if (value && typeof value === 'object') {
-        queue.push(value);
-      }
-    }
-  }
-
-  return null;
-}
-
-function extractCentralAlias(payload) {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-
-  const queue = [payload];
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-
-    if (!current || typeof current !== 'object') {
-      continue;
-    }
-
-    if (typeof current.alias === 'string' && current.alias.trim()) {
-      return current.alias.trim();
-    }
-
-    for (const value of Object.values(current)) {
-      if (value && typeof value === 'object') {
-        queue.push(value);
-      }
-    }
-  }
-
-  return null;
-}
-
-function toSyncIssues(account) {
-  const issues = [];
-  const sanitizedNombre = sanitizeCentralText(account.nombre);
-  const sanitizedApellido = sanitizeCentralText(account.apellido);
-  const sanitizedDni = sanitizeDni(account.dni);
-
-  if (!account.activa) {
-    issues.push('La cuenta está inactiva.');
-  }
-
-  if (!sanitizedNombre || !sanitizedApellido) {
-    issues.push('La persona asociada no tiene nombre y apellido completos.');
-  }
-
-  if (!sanitizedDni) {
-    issues.push('La persona asociada no tiene DNI.');
-  } else if (sanitizedDni.length < 7 || sanitizedDni.length > 8) {
-    issues.push('El DNI debe tener 7 u 8 dígitos para sincronizar con Brocoly.');
-  }
-
-  return issues;
 }
 
 async function getSyncAccountById(accountId) {

@@ -1,0 +1,265 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ROLES
+// ============================================================
+model Rol {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre      String
+  descripcion String?
+
+  personasRoles PersonasRoles[]
+
+  @@map("roles")
+}
+
+// ============================================================
+// TIPOS DE CUENTA
+// ============================================================
+model TipoCuenta {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre               String
+  descripcion          String?
+  limiteTransferencia  Decimal? @map("limite_transferencia") @db.Decimal(18, 2)
+
+  cuentas Cuenta[]
+
+  @@map("tipos_cuenta")
+}
+
+// ============================================================
+// TIPOS DE TRANSACCIÓN
+// ============================================================
+model TipoTransaccion {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre      String
+  descripcion String?
+
+  transacciones Transaccion[]
+
+  @@map("tipos_transaccion")
+}
+
+// ============================================================
+// PERSONAS
+// ============================================================
+model Persona {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre         String?
+  apellido       String?
+  dni            String?  @unique
+  email          String?  @unique
+  telefono       String?
+  fechaNacimiento DateTime? @map("fecha_nacimiento") @db.Date
+  perfilCompleto Boolean  @default(false) @map("perfil_completo")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  usuarios      Usuario[]
+  personasRoles PersonasRoles[]
+  cuentas       Cuenta[]
+  destinatarios Destinatario[]
+
+  @@map("personas")
+}
+
+// ============================================================
+// USUARIOS (Clerk Auth)
+// ============================================================
+model Usuario {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  personaId String   @map("persona_id") @db.Uuid
+  clerkId   String   @unique @map("clerk_id")
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  persona   Persona   @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  auditoria Auditoria[]
+  idempotencyKeys IdempotencyKey[]
+
+  @@index([personaId])
+  @@index([clerkId])
+  @@map("usuarios")
+}
+
+// ============================================================
+// PERSONAS_ROLES (Many-to-Many)
+// ============================================================
+model PersonasRoles {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  personaId  String   @map("persona_id") @db.Uuid
+  rolId      String   @map("rol_id") @db.Uuid
+  asignadoAt DateTime @default(now()) @map("asignado_at") @db.Timestamptz(6)
+
+  persona Persona @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  rol     Rol     @relation(fields: [rolId], references: [id], onDelete: Cascade)
+
+  @@unique([personaId, rolId])
+  @@index([personaId])
+  @@index([rolId])
+  @@map("personas_roles")
+}
+
+// ============================================================
+// CUENTAS
+// ============================================================
+model Cuenta {
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  personaId               String   @map("persona_id") @db.Uuid
+  tipoCuentaId            String   @map("tipo_cuenta_id") @db.Uuid
+  numeroCuenta            String   @unique @map("numero_cuenta")
+  cbu                     String   @unique
+  alias                   String?  @unique
+  saldo                   Decimal  @default(0) @map("saldo") @db.Decimal(18, 2)
+  activa                  Boolean  @default(true)
+  bancoCentralRegistrada  Boolean  @default(false) @map("banco_central_registrada")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  persona        Persona      @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  tipoCuenta     TipoCuenta   @relation(fields: [tipoCuentaId], references: [id])
+
+  transaccionesOrigen Transaccion[] @relation("origen")
+  transaccionesDestino Transaccion[] @relation("destino")
+
+  @@index([personaId])
+  @@index([tipoCuentaId])
+  @@index([alias])
+  @@index([cbu])
+  @@map("cuentas")
+}
+
+// ============================================================
+// BANCO CENTRAL CONFIGURACIÓN
+// ============================================================
+model BancoCentralConfiguracion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  environment   String   @unique @default("test")
+  apiUrl        String   @default("https://centralbank.brocoly.cc/api") @map("api_url")
+  registerToken String?  @map("register_token")
+  apiKey        String?  @map("api_key")
+  bankName      String?  @map("bank_name")
+  activo        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("banco_central_configuracion")
+}
+
+// ============================================================
+// BANCO CENTRAL REGISTRO
+// ============================================================
+model BancoCentralRegistro {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bankId      String   @map("bank_id")
+  bankCode    Int      @map("bank_code")
+  nombre      String
+  environment String   @default("test")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([bankId, environment])
+  @@unique([bankCode, environment])
+  @@map("banco_central_registro")
+}
+
+// ============================================================
+// DESTINATARIOS (Beneficiarios de transferencias externas)
+// ============================================================
+model Destinatario {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  personaId   String   @map("persona_id") @db.Uuid
+  alias       String?
+  cbuExterno  String   @map("cbu_externo")
+  bancoExterno String? @map("banco_externo")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  persona Persona @relation(fields: [personaId], references: [id], onDelete: Cascade)
+
+  @@index([personaId])
+  @@map("destinatarios")
+}
+
+// ============================================================
+// TRANSACCIONES
+// ============================================================
+model Transaccion {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipoTransaccionId    String   @map("tipo_transaccion_id") @db.Uuid
+  cuentaOrigenId       String?  @map("cuenta_origen_id") @db.Uuid
+  cuentaDestinoId      String?  @map("cuenta_destino_id") @db.Uuid
+  monto                Decimal  @map("monto") @db.Decimal(18, 2)
+  descripcion          String?
+  estado               String   @default("pendiente")
+  centralTransactionId String?  @map("central_transaction_id")
+  canal                String   @default("local")
+  cbuOrigen            String?  @map("cbu_origen")
+  cbuDestino           String?  @map("cbu_destino")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tipoTransaccion TipoTransaccion @relation(fields: [tipoTransaccionId], references: [id])
+  cuentaOrigen    Cuenta?         @relation("origen", fields: [cuentaOrigenId], references: [id])
+  cuentaDestino   Cuenta?         @relation("destino", fields: [cuentaDestinoId], references: [id])
+
+  @@index([tipoTransaccionId])
+  @@index([cuentaOrigenId])
+  @@index([cuentaDestinoId])
+  @@index([centralTransactionId])
+  @@index([canal])
+  @@index([cbuOrigen])
+  @@index([cbuDestino])
+  @@index([createdAt])
+  @@map("transacciones")
+}
+
+// ============================================================
+// AUDITORÍA
+// ============================================================
+model Auditoria {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId       String?  @map("usuario_id") @db.Uuid
+  accion          String
+  entidad         String
+  entidadId       String?  @map("entidad_id") @db.Uuid
+  payloadAntes    Json?    @map("payload_antes")
+  payloadDespues  Json?    @map("payload_despues")
+  ipAddress       String?  @map("ip_address")
+  fuente          String   @default("usuario")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  usuario Usuario? @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId])
+  @@index([entidad, entidadId])
+  @@map("auditoria")
+}
+
+// ============================================================
+// IDEMPOTENCY KEYS
+// ============================================================
+model IdempotencyKey {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key            String
+  usuarioId      String?   @map("user_id") @db.Uuid
+  endpoint       String
+  requestHash    String    @map("request_hash")
+  status         String    @default("in_flight")
+  responseStatus Int?      @map("response_status")
+  responseBody   Json?     @map("response_body")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz(6)
+  expiresAt      DateTime  @default(dbgenerated("(now() + '24 hours'::interval)")) @map("expires_at") @db.Timestamptz(6)
+
+  usuario Usuario? @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+
+  @@unique([usuarioId, endpoint, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
