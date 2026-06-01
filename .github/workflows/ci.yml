@@ -87,5 +87,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # ADVISORY ACEPTADO (jun 2026): queda 1 critical en `vitest`
+      # (GHSA-5xrq-8626-4rwp, "Vitest UI server arbitrary file read/execute").
+      #   - Es devDependency: NO se shippea a producción.
+      #   - El vector es el UI server (`vitest --ui`), que no se usa en CI ni prod.
+      #   - El fix exige vitest >= 4.1.0, que requiere Node 20+. El proyecto
+      #     corre en Node 18, así que se difiere hasta subir Node.
+      # Por eso este job es continue-on-error (informativo, no bloquea).
       - name: npm audit (high + critical)
         run: npm audit --audit-level=high
