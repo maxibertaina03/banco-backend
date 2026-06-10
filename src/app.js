@@ -66,10 +66,13 @@ app.use(cors({
 }));
 
 // ── Rate limiters ─────────────────────────────────────────────────────────────
-// Límite global: 300 req / 15 min por IP
+// Límite global por IP: estricto en producción (300/15min), holgado en
+// desarrollo (2000/15min) para no chocar con el hot-reload y las pruebas
+// manuales. Solo se considera "producción" si NODE_ENV lo dice explícitamente.
+const isProduction = process.env.NODE_ENV === 'production';
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 300,
+  max: isProduction ? 300 : 2000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Demasiadas solicitudes. Intentá de nuevo en unos minutos.' },
