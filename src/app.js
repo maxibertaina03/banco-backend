@@ -8,7 +8,7 @@ const authRouter = require('./modules/auth-router');
 const clerkWebhookRouter = require('./modules/clerk-webhook-router');
 const { clerkAuth } = require('./middlewares/clerk-auth');
 const requireActiveUser = require('./middlewares/require-active-user');
-const requireCompleteProfile = require('./middlewares/require-complete-profile');
+const requerirPerfilCompleto = require('./middlewares/require-complete-profile');
 const notFound = require('./middlewares/not-found');
 const errorHandler = require('./middlewares/error-handler');
 const env = require('./config/env');
@@ -114,7 +114,7 @@ app.get('/api/health', asyncHandler(async (_req, res) => {
 app.use('/auth', authLimiter, authRouter);
 
 // ── API protegida ─────────────────────────────────────────────────────────────
-app.use('/api', clerkAuth, requireActiveUser, requireCompleteProfile, routes);
+app.use('/api', clerkAuth, requireActiveUser, requerirPerfilCompleto, routes);
 
 app.use(notFound);
 app.use(errorHandler);

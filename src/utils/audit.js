@@ -1,4 +1,4 @@
-async function writeAuditLog(client, entry) {
+async function escribirLogDeAuditoria(client, entry) {
   const {
     usuarioId = null,
     accion,
@@ -28,15 +28,15 @@ async function writeAuditLog(client, entry) {
   );
 }
 
-function buildAuditContext(req) {
+function armarContextoDeAuditoria(req) {
   return {
-    usuarioId: req.currentUser?.id || null,
+    usuarioId: req.usuarioActual?.id || null,
     ipAddress: req.ip || null,
     fuente: 'usuario',
   };
 }
 
-function buildSystemAuditContext(ipAddress = null) {
+function armarContextoDeAuditoriaDelSistema(ipAddress = null) {
   return {
     usuarioId: null,
     ipAddress,
@@ -44,7 +44,7 @@ function buildSystemAuditContext(ipAddress = null) {
   };
 }
 
-function buildWebhookAuditContext(ipAddress = null) {
+function armarContextoDeAuditoriaDeWebhook(ipAddress = null) {
   return {
     usuarioId: null,
     ipAddress,
@@ -53,8 +53,8 @@ function buildWebhookAuditContext(ipAddress = null) {
 }
 
 module.exports = {
-  buildAuditContext,
-  buildSystemAuditContext,
-  buildWebhookAuditContext,
-  writeAuditLog,
+  armarContextoDeAuditoria,
+  armarContextoDeAuditoriaDelSistema,
+  armarContextoDeAuditoriaDeWebhook,
+  escribirLogDeAuditoria,
 };

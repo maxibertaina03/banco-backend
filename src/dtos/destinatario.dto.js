@@ -1,6 +1,6 @@
 // Mapea filas de la tabla `destinatarios` a la representación pública.
 
-function toPublicDestinatario(row) {
+function aDestinatarioPublico(row) {
   if (!row) return null;
   return {
     id: row.id,
@@ -13,4 +13,4 @@ function toPublicDestinatario(row) {
   };
 }
 
-module.exports = { toPublicDestinatario };
+module.exports = { aDestinatarioPublico };

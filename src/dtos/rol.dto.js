@@ -1,7 +1,7 @@
 // Mapea filas de `roles` (con o sin metadatos de personas_roles) a la
 // representación pública usada por /personas/:id/roles y /personas/:id/full.
 
-function toPublicRol(row) {
+function aRolPublico(row) {
   if (!row) return null;
   const result = {
     id: row.id,
@@ -17,4 +17,4 @@ function toPublicRol(row) {
   return result;
 }
 
-module.exports = { toPublicRol };
+module.exports = { aRolPublico };

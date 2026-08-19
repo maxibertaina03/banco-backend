@@ -1,7 +1,7 @@
 const pool = require('../db/pool');
 const HttpError = require('../utils/http-error');
 const { buildFilters, buildInsertQuery, buildUpdateQuery } = require('../utils/sql');
-const { writeAuditLog } = require('../utils/audit');
+const { escribirLogDeAuditoria } = require('../utils/audit');
 
 // Convención: las entidades pueden declarar `dto` (función fila→respuesta
 // pública) y `inputDto` (función body→payload normalizado para SQL). Si la
@@ -67,7 +67,7 @@ async function create(entityConfig, payload, auditContext = {}) {
 
     // payloadDespues queda con la fila cruda: la auditoría es interna y se
     // beneficia de tener todos los campos, incluidos los no expuestos.
-    await writeAuditLog(client, {
+    await escribirLogDeAuditoria(client, {
       usuarioId: auditContext.usuarioId,
       accion: 'CREATE',
       entidad: entityConfig.table,
@@ -107,7 +107,7 @@ async function update(entityConfig, id, payload, auditContext = {}) {
     const result = await client.query(query);
     const updated = result.rows[0];
 
-    await writeAuditLog(client, {
+    await escribirLogDeAuditoria(client, {
       usuarioId: auditContext.usuarioId,
       accion: 'UPDATE',
       entidad: entityConfig.table,
@@ -141,7 +141,7 @@ async function remove(entityConfig, id, auditContext = {}) {
 
     const deleted = result.rows[0];
 
-    await writeAuditLog(client, {
+    await escribirLogDeAuditoria(client, {
       usuarioId: auditContext.usuarioId,
       accion: 'DELETE',
       entidad: entityConfig.table,

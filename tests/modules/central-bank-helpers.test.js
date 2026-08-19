@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 
 const {
-  generateLocalAccountNumber,
+  generarNumeroDeCuentaLocal,
   sanitizeCentralText,
   sanitizeDni,
   cleanAliasText,
@@ -13,32 +13,32 @@ const {
   createAliasVariant,
   buildAliasCandidates,
   extractCentralCbu,
-  extractCentralTransactionId,
+  extraerIdTransaccionCentral,
   extractCentralAlias,
   toSyncIssues,
 } = await import("../../src/modules/central-bank/central-bank-helpers.js");
 
-// ── generateLocalAccountNumber ────────────────────────────────────────────────
+// ── generarNumeroDeCuentaLocal ────────────────────────────────────────────────
 
-describe("generateLocalAccountNumber", () => {
+describe("generarNumeroDeCuentaLocal", () => {
   it("devuelve siempre 12 dígitos", () => {
-    const num = generateLocalAccountNumber("11111111-2222-3333-4444-555555555555");
+    const num = generarNumeroDeCuentaLocal("11111111-2222-3333-4444-555555555555");
     expect(num).toMatch(/^\d{12}$/);
   });
 
   it("usa los últimos 6 dígitos de la persona como prefijo", () => {
-    const num = generateLocalAccountNumber("abc123456");
+    const num = generarNumeroDeCuentaLocal("abc123456");
     expect(num.slice(0, 6)).toBe("123456");
   });
 
   it("rellena con ceros si la persona tiene pocos dígitos", () => {
-    const num = generateLocalAccountNumber("ab12");
+    const num = generarNumeroDeCuentaLocal("ab12");
     expect(num.slice(0, 6)).toBe("000012");
   });
 
   it("no rompe con personaId vacío o null", () => {
-    expect(generateLocalAccountNumber(null)).toMatch(/^\d{12}$/);
-    expect(generateLocalAccountNumber("")).toMatch(/^\d{12}$/);
+    expect(generarNumeroDeCuentaLocal(null)).toMatch(/^\d{12}$/);
+    expect(generarNumeroDeCuentaLocal("")).toMatch(/^\d{12}$/);
   });
 });
 
@@ -131,7 +131,7 @@ describe("createAliasVariant", () => {
 // ── buildAliasCandidates ──────────────────────────────────────────────────────
 
 describe("buildAliasCandidates", () => {
-  const account = {
+  const cuenta = {
     nombre: "Juan",
     apellido: "Pérez",
     numero_cuenta: "001234567890",
@@ -140,18 +140,18 @@ describe("buildAliasCandidates", () => {
   };
 
   it("genera candidatos sin duplicados", () => {
-    const candidates = buildAliasCandidates(account, "Orbital");
+    const candidates = buildAliasCandidates(cuenta, "Orbital");
     expect(candidates.length).toBe(new Set(candidates).size);
     expect(candidates).toContain("juan.perez");
   });
 
   it("usa los últimos 4 del número de cuenta como sufijo", () => {
-    const candidates = buildAliasCandidates(account, "Orbital");
+    const candidates = buildAliasCandidates(cuenta, "Orbital");
     expect(candidates).toContain("juan.7890");
   });
 
   it("cae a 'orbital' como banco por defecto si no hay nombre", () => {
-    const candidates = buildAliasCandidates(account, null);
+    const candidates = buildAliasCandidates(cuenta, null);
     expect(candidates.some((c) => c.includes("orbital"))).toBe(true);
   });
 });
@@ -174,24 +174,24 @@ describe("extractCentralCbu", () => {
   });
 });
 
-// ── extractCentralTransactionId ───────────────────────────────────────────────
+// ── extraerIdTransaccionCentral ───────────────────────────────────────────────
 
-describe("extractCentralTransactionId", () => {
-  it("reconoce transaccionId (POST /transactions)", () => {
-    expect(extractCentralTransactionId({ transaccionId: "tx-1" })).toBe("tx-1");
+describe("extraerIdTransaccionCentral", () => {
+  it("reconoce transaccionId (POST /transacciones)", () => {
+    expect(extraerIdTransaccionCentral({ transaccionId: "tx-1" })).toBe("tx-1");
   });
 
-  it("reconoce _id (GET /transactions)", () => {
-    expect(extractCentralTransactionId({ _id: "tx-2" })).toBe("tx-2");
+  it("reconoce _id (GET /transacciones)", () => {
+    expect(extraerIdTransaccionCentral({ _id: "tx-2" })).toBe("tx-2");
   });
 
   it("busca en estructuras anidadas", () => {
-    expect(extractCentralTransactionId({ data: { transferId: "tx-3" } })).toBe("tx-3");
+    expect(extraerIdTransaccionCentral({ data: { transferId: "tx-3" } })).toBe("tx-3");
   });
 
   it("devuelve null si no hay ningún id reconocible", () => {
-    expect(extractCentralTransactionId({ foo: 1 })).toBeNull();
-    expect(extractCentralTransactionId(null)).toBeNull();
+    expect(extraerIdTransaccionCentral({ foo: 1 })).toBeNull();
+    expect(extraerIdTransaccionCentral(null)).toBeNull();
   });
 });
 

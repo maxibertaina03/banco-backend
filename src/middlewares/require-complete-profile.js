@@ -1,8 +1,8 @@
 const HttpError = require('../utils/http-error');
-const { isInternalUser } = require('../utils/access-control');
+const { esUsuarioInterno } = require('../utils/access-control');
 
-function requireCompleteProfile(req, _res, next) {
-  if (isInternalUser(req.currentUser) || req.currentUser?.perfil_completo === true) {
+function requerirPerfilCompleto(req, _res, next) {
+  if (esUsuarioInterno(req.usuarioActual) || req.usuarioActual?.perfil_completo === true) {
     return next();
   }
 
@@ -13,4 +13,4 @@ function requireCompleteProfile(req, _res, next) {
   );
 }
 
-module.exports = requireCompleteProfile;
+module.exports = requerirPerfilCompleto;

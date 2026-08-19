@@ -1,9 +1,9 @@
 const HttpError = require('../utils/http-error');
-const { hasAnyRole } = require('../utils/access-control');
+const { tieneAlgunRol } = require('../utils/access-control');
 
-function requireRoles(roles, message = 'No tienes permisos para realizar esta acción.') {
+function requerirRoles(roles, message = 'No tienes permisos para realizar esta acción.') {
   return (req, _res, next) => {
-    if (hasAnyRole(req.currentUser, roles)) {
+    if (tieneAlgunRol(req.usuarioActual, roles)) {
       return next();
     }
 
@@ -11,4 +11,4 @@ function requireRoles(roles, message = 'No tienes permisos para realizar esta ac
   };
 }
 
-module.exports = requireRoles;
+module.exports = requerirRoles;

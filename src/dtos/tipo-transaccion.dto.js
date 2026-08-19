@@ -1,6 +1,6 @@
 // Catálogo de tipos de transacción.
 
-function toPublicTipoTransaccion(row) {
+function aTipoDeTransaccionPublico(row) {
   if (!row) return null;
   return {
     id: row.id,
@@ -11,4 +11,4 @@ function toPublicTipoTransaccion(row) {
   };
 }
 
-module.exports = { toPublicTipoTransaccion };
+module.exports = { aTipoDeTransaccionPublico };

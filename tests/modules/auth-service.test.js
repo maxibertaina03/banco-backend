@@ -31,12 +31,12 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-// ── getOrCreateUser ─────────────────────────────────────────────────────────
+// ── obtenerOCrearUsuario ─────────────────────────────────────────────────────────
 
-describe("getOrCreateUser", () => {
+describe("obtenerOCrearUsuario", () => {
   it("devuelve el user existente sin llamar a Clerk si ya está en BD", async () => {
     const mocks = buildMocks();
-    const existingUser = {
+    const usuarioExistente = {
       id: "u-1",
       persona_id: "p-1",
       clerk_id: "clerk_xyz",
@@ -46,12 +46,12 @@ describe("getOrCreateUser", () => {
       email: "juan@ex.com",
       perfil_completo: true,
     };
-    mocks.pool.query.mockResolvedValueOnce({ rowCount: 1, rows: [existingUser] });
+    mocks.pool.query.mockResolvedValueOnce({ rowCount: 1, rows: [usuarioExistente] });
     const service = buildService(mocks);
 
-    const result = await service.getOrCreateUser("clerk_xyz");
+    const result = await service.obtenerOCrearUsuario("clerk_xyz");
 
-    expect(result).toEqual(existingUser);
+    expect(result).toEqual(usuarioExistente);
     expect(mocks.clerkApi.get).not.toHaveBeenCalled();
     expect(mocks.pool.connect).not.toHaveBeenCalled();
   });
@@ -59,9 +59,9 @@ describe("getOrCreateUser", () => {
   it("filtra por activo=true: usuario inactivo no se devuelve directo", async () => {
     const mocks = buildMocks();
     // El SELECT no encuentra (rowCount=0) porque tiene `AND activo = true`.
-    // Eso fuerza a provisionUserFromClerk que sí va a Clerk.
+    // Eso fuerza a aprovisionarUsuarioDesdeClerk que sí va a Clerk.
     mocks.pool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });
-    // pool.connect() → mockClient.query es lo que usa provisionUserFromClerk;
+    // pool.connect() → mockClient.query es lo que usa aprovisionarUsuarioDesdeClerk;
     // las queries reales se mockean abajo para evitar llamar a Clerk.
     mocks.clerkApi.get.mockResolvedValueOnce({
       data: {
@@ -72,7 +72,7 @@ describe("getOrCreateUser", () => {
         phone_numbers: [],
       },
     });
-    // En provisionUserFromClerk: BEGIN, SELECT existing by clerk_id, ...
+    // En aprovisionarUsuarioDesdeClerk: BEGIN, SELECT existing by clerk_id, ...
     mocks.mockClient.query.mockImplementation((sql) => {
       if (/^(BEGIN|COMMIT|ROLLBACK)/.test(sql)) return Promise.resolve({ rows: [] });
       // existingUserByClerk: no existe
@@ -103,22 +103,22 @@ describe("getOrCreateUser", () => {
     });
     const service = buildService(mocks);
 
-    const result = await service.getOrCreateUser("clerk_xyz");
+    const result = await service.obtenerOCrearUsuario("clerk_xyz");
 
     expect(result).toMatchObject({ id: "u-new", persona_id: "p-new" });
     expect(mocks.clerkApi.get).toHaveBeenCalledOnce();
   });
 });
 
-// ── createUserWithClerk ─────────────────────────────────────────────────────
+// ── crearUsuarioConClerk ─────────────────────────────────────────────────────
 
-describe("createUserWithClerk", () => {
+describe("crearUsuarioConClerk", () => {
   it("404 si la persona no existe", async () => {
     const mocks = buildMocks();
     mocks.pool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });
     const service = buildService(mocks);
 
-    await expect(service.createUserWithClerk("p-ghost", "clerk_x")).rejects.toMatchObject({
+    await expect(service.crearUsuarioConClerk("p-ghost", "clerk_x")).rejects.toMatchObject({
       status: 404,
     });
   });
@@ -131,7 +131,7 @@ describe("createUserWithClerk", () => {
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ persona_id: "p-OTHER" }] }); // clerk_id en uso por OTRO
     const service = buildService(mocks);
 
-    await expect(service.createUserWithClerk("p-1", "clerk_x")).rejects.toMatchObject({
+    await expect(service.crearUsuarioConClerk("p-1", "clerk_x")).rejects.toMatchObject({
       status: 400,
     });
   });
@@ -145,7 +145,7 @@ describe("createUserWithClerk", () => {
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "u-existing", clerk_id: "clerk_x", activo: true }] }); // UPDATE
     const service = buildService(mocks);
 
-    const result = await service.createUserWithClerk("p-1", "clerk_x");
+    const result = await service.crearUsuarioConClerk("p-1", "clerk_x");
 
     expect(result.clerk_id).toBe("clerk_x");
     expect(result.activo).toBe(true);
@@ -160,15 +160,15 @@ describe("createUserWithClerk", () => {
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "u-new" }] }); // INSERT
     const service = buildService(mocks);
 
-    const result = await service.createUserWithClerk("p-1", "clerk_x");
+    const result = await service.crearUsuarioConClerk("p-1", "clerk_x");
 
     expect(result.id).toBe("u-new");
   });
 });
 
-// ── getUserProfile ──────────────────────────────────────────────────────────
+// ── obtenerPerfilDeUsuario ──────────────────────────────────────────────────────────
 
-describe("getUserProfile", () => {
+describe("obtenerPerfilDeUsuario", () => {
   it("devuelve el perfil con roles si el usuario existe", async () => {
     const mocks = buildMocks();
     mocks.pool.query
@@ -176,7 +176,7 @@ describe("getUserProfile", () => {
       .mockResolvedValueOnce({ rowCount: 2, rows: [{ id: "r-1", nombre: "cliente" }, { id: "r-2", nombre: "admin" }] });
     const service = buildService(mocks);
 
-    const result = await service.getUserProfile("clerk_x");
+    const result = await service.obtenerPerfilDeUsuario("clerk_x");
 
     expect(result).toMatchObject({ id: "u-1", persona_id: "p-1", nombre: "Juan" });
     expect(result.roles).toHaveLength(2);
@@ -190,15 +190,15 @@ describe("getUserProfile", () => {
       .mockResolvedValueOnce({ rowCount: 0, rows: [] });
     const service = buildService(mocks);
 
-    const result = await service.getUserProfile("clerk_x");
+    const result = await service.obtenerPerfilDeUsuario("clerk_x");
 
     expect(result.roles).toEqual([]);
   });
 });
 
-// ── deactivateUser ──────────────────────────────────────────────────────────
+// ── desactivarUsuario ──────────────────────────────────────────────────────────
 
-describe("deactivateUser", () => {
+describe("desactivarUsuario", () => {
   it("marca activo=false y devuelve el usuario actualizado", async () => {
     const mocks = buildMocks();
     mocks.pool.query.mockResolvedValueOnce({
@@ -207,7 +207,7 @@ describe("deactivateUser", () => {
     });
     const service = buildService(mocks);
 
-    const result = await service.deactivateUser("clerk_x");
+    const result = await service.desactivarUsuario("clerk_x");
 
     expect(result.activo).toBe(false);
     const [sql, params] = mocks.pool.query.mock.calls[0];
@@ -220,13 +220,13 @@ describe("deactivateUser", () => {
     mocks.pool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });
     const service = buildService(mocks);
 
-    await expect(service.deactivateUser("clerk_ghost")).rejects.toMatchObject({ status: 404 });
+    await expect(service.desactivarUsuario("clerk_ghost")).rejects.toMatchObject({ status: 404 });
   });
 });
 
-// ── completeUserProfile ─────────────────────────────────────────────────────
+// ── completarPerfilDeUsuario ─────────────────────────────────────────────────────
 
-describe("completeUserProfile", () => {
+describe("completarPerfilDeUsuario", () => {
   const payload = {
     nombre: "Juan",
     apellido: "Pérez",
@@ -244,7 +244,7 @@ describe("completeUserProfile", () => {
     });
     const service = buildService(mocks);
 
-    const result = await service.completeUserProfile("clerk_x", payload);
+    const result = await service.completarPerfilDeUsuario("clerk_x", payload);
 
     expect(result.perfil_completo).toBe(true);
     expect(result.dni).toBe("12345678");
@@ -255,20 +255,20 @@ describe("completeUserProfile", () => {
     mocks.pool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });
     const service = buildService(mocks);
 
-    await expect(service.completeUserProfile("clerk_x", payload)).rejects.toMatchObject({
+    await expect(service.completarPerfilDeUsuario("clerk_x", payload)).rejects.toMatchObject({
       status: 404,
     });
   });
 });
 
-// ── syncClerkUserFromWebhook ────────────────────────────────────────────────
+// ── sincronizarUsuarioDeClerkPorWebhook ────────────────────────────────────────────────
 
-describe("syncClerkUserFromWebhook", () => {
+describe("sincronizarUsuarioDeClerkPorWebhook", () => {
   it("400 si el evento no tiene user id", async () => {
     const mocks = buildMocks();
     const service = buildService(mocks);
 
-    await expect(service.syncClerkUserFromWebhook({})).rejects.toMatchObject({ status: 400 });
+    await expect(service.sincronizarUsuarioDeClerkPorWebhook({})).rejects.toMatchObject({ status: 400 });
     expect(mocks.pool.connect).not.toHaveBeenCalled();
   });
 
@@ -284,7 +284,7 @@ describe("syncClerkUserFromWebhook", () => {
     });
     const service = buildService(mocks);
 
-    await service.syncClerkUserFromWebhook({
+    await service.sincronizarUsuarioDeClerkPorWebhook({
       id: "clerk_x",
       email_addresses: [{ id: "e-1", email_address: "juan@ex.com" }],
       primary_email_address_id: "e-1",
@@ -313,7 +313,7 @@ describe("syncClerkUserFromWebhook", () => {
     const service = buildService(mocks);
 
     await expect(
-      service.syncClerkUserFromWebhook({
+      service.sincronizarUsuarioDeClerkPorWebhook({
         id: "clerk_x",
         email_addresses: [],
         phone_numbers: [],
@@ -349,7 +349,7 @@ describe("syncClerkUserFromWebhook", () => {
     });
     const service = buildService(mocks);
 
-    await service.syncClerkUserFromWebhook({
+    await service.sincronizarUsuarioDeClerkPorWebhook({
       id: "clerk_x",
       email_addresses: [{ id: "e-1", email_address: "  JUAN@Example.COM  " }],
       primary_email_address_id: "e-1",
@@ -362,15 +362,15 @@ describe("syncClerkUserFromWebhook", () => {
   });
 });
 
-// ── deactivateClerkUserFromWebhook ──────────────────────────────────────────
+// ── desactivarUsuarioDeClerkPorWebhook ──────────────────────────────────────────
 
-describe("deactivateClerkUserFromWebhook", () => {
+describe("desactivarUsuarioDeClerkPorWebhook", () => {
   it("no-op si clerk_id es null/undefined", async () => {
     const mocks = buildMocks();
     const service = buildService(mocks);
 
-    await service.deactivateClerkUserFromWebhook(null);
-    await service.deactivateClerkUserFromWebhook(undefined);
+    await service.desactivarUsuarioDeClerkPorWebhook(null);
+    await service.desactivarUsuarioDeClerkPorWebhook(undefined);
 
     expect(mocks.pool.query).not.toHaveBeenCalled();
   });
@@ -380,7 +380,7 @@ describe("deactivateClerkUserFromWebhook", () => {
     mocks.pool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });
     const service = buildService(mocks);
 
-    await service.deactivateClerkUserFromWebhook("clerk_x");
+    await service.desactivarUsuarioDeClerkPorWebhook("clerk_x");
 
     expect(mocks.pool.query).toHaveBeenCalledOnce();
     const [sql] = mocks.pool.query.mock.calls[0];

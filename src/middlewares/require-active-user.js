@@ -1,10 +1,10 @@
 const pool = require('../db/pool');
 const HttpError = require('../utils/http-error');
-const { extractClerkUserId } = require('./clerk-auth');
+const { extraerIdUsuarioDeClerk } = require('./clerk-auth');
 const authService = require('../modules/auth-service');
 
 async function requireActiveUser(req, _res, next) {
-  const clerkId = extractClerkUserId(req.auth);
+  const clerkId = extraerIdUsuarioDeClerk(req.auth);
 
   if (!clerkId) {
     return next(new HttpError(401, 'No se pudo identificar al usuario autenticado.'));
@@ -20,7 +20,7 @@ async function requireActiveUser(req, _res, next) {
     );
 
     if (result.rowCount === 0) {
-      await authService.getOrCreateUser(clerkId);
+      await authService.obtenerOCrearUsuario(clerkId);
 
       result = await pool.query(
         `SELECT u.*, p.nombre, p.apellido, p.email, p.perfil_completo
@@ -45,7 +45,7 @@ async function requireActiveUser(req, _res, next) {
     );
 
     user.roles = rolesResult.rows.map((row) => row.nombre);
-    req.currentUser = user;
+    req.usuarioActual = user;
     return next();
   } catch (error) {
     return next(error);

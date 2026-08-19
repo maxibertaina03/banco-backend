@@ -2,14 +2,14 @@ const express = require('express');
 const { z } = require('zod');
 const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
-const { clerkAuth, extractClerkUserId } = require('../middlewares/clerk-auth');
+const { clerkAuth, extraerIdUsuarioDeClerk } = require('../middlewares/clerk-auth');
 const authService = require('./auth-service');
 const centralBankService = require('./central-bank-service');
 const { uuidLike } = require('../utils/schemas');
 const HttpError = require('../utils/http-error');
 
 const router = express.Router();
-const completeProfileSchema = z.object({
+const completarPerfilSchema = z.object({
   nombre: z.string().trim().min(1),
   apellido: z.string().trim().min(1),
   dni: z.string().trim().min(1),
@@ -21,7 +21,7 @@ const completeProfileSchema = z.object({
 // Edición parcial del perfil ya completo. A diferencia del PUT, no exige
 // todos los campos: el cliente manda solo lo que cambió. NO toca
 // `perfil_completo` (si ya era true, sigue siendo true).
-const editProfileSchema = z
+const editarPerfilSchema = z
   .object({
     nombre: z.string().trim().min(1).optional(),
     apellido: z.string().trim().min(1).optional(),
@@ -41,10 +41,10 @@ router.post(
   '/login',
   clerkAuth,
   asyncHandler(async (req, res) => {
-    const clerkId = extractClerkUserId(req.auth);
+    const clerkId = extraerIdUsuarioDeClerk(req.auth);
 
     // Obtener o crear usuario en BD
-    const user = await authService.getOrCreateUser(clerkId);
+    const user = await authService.obtenerOCrearUsuario(clerkId);
 
     res.json({
       message: 'Login exitoso.',
@@ -76,13 +76,13 @@ router.post(
   ),
   asyncHandler(async (req, res) => {
     const { persona_id } = req.body;
-    const clerkId = extractClerkUserId(req.auth);
+    const clerkId = extraerIdUsuarioDeClerk(req.auth);
 
     if (!clerkId) {
       throw new HttpError(400, 'No se pudo obtener el usuario autenticado desde Clerk.');
     }
 
-    const user = await authService.createUserWithClerk(persona_id, clerkId);
+    const user = await authService.crearUsuarioConClerk(persona_id, clerkId);
 
     res.status(201).json({
       message: 'Usuario registrado exitosamente.',
@@ -92,52 +92,52 @@ router.post(
 );
 
 /**
- * GET /auth/profile
+ * GET /auth/perfil
  * Obtiene el perfil completo del usuario autenticado.
  * Requiere: token JWT de Clerk autorizado en header
  */
 router.get(
-  '/profile',
+  '/perfil',
   clerkAuth,
   asyncHandler(async (req, res) => {
-    const clerkId = extractClerkUserId(req.auth);
+    const clerkId = extraerIdUsuarioDeClerk(req.auth);
 
-    const profile = await authService.getUserProfile(clerkId);
+    const perfil = await authService.obtenerPerfilDeUsuario(clerkId);
 
     res.json({
       message: 'Perfil obtenido.',
-      user: profile,
+      user: perfil,
     });
   })
 );
 
 /**
- * PUT /auth/profile
+ * PUT /auth/perfil
  * Completa o actualiza los datos de negocio del usuario autenticado.
  */
 router.put(
-  '/profile',
+  '/perfil',
   clerkAuth,
-  validate(completeProfileSchema),
+  validate(completarPerfilSchema),
   asyncHandler(async (req, res) => {
-    const clerkId = extractClerkUserId(req.auth);
+    const clerkId = extraerIdUsuarioDeClerk(req.auth);
 
-    const profile = await authService.completeUserProfile(clerkId, req.body);
+    const perfil = await authService.completarPerfilDeUsuario(clerkId, req.body);
 
-    // Best-effort: register person with Central Bank after profile completion.
-    // Failures here are non-fatal — the profile update already succeeded.
+    // Best-effort: register person with Central Bank after perfil completion.
+    // Failures here are non-fatal — the perfil update already succeeded.
     let centralBank = null;
     try {
-      const centralResult = await centralBankService.registerLocalPersonFromCentral(
+      const centralResult = await centralBankService.registrarPersonaLocalDesdeCentral(
         {
-          nombre: profile.nombre,
-          apellido: profile.apellido,
-          dni: profile.dni,
-          email: profile.email,
-          telefono: profile.telefono,
+          nombre: perfil.nombre,
+          apellido: perfil.apellido,
+          dni: perfil.dni,
+          email: perfil.email,
+          telefono: perfil.telefono,
           environment: 'test',
         },
-        { usuarioId: profile.id, ipAddress: req.ip || null }
+        { usuarioId: perfil.id, ipAddress: req.ip || null }
       );
       centralBank = {
         status: centralResult.status,
@@ -151,25 +151,25 @@ router.put(
 
     res.json({
       message: 'Perfil completado.',
-      user: profile,
+      user: perfil,
       centralBank,
     });
   })
 );
 
 /**
- * PATCH /auth/profile
+ * PATCH /auth/perfil
  * Actualización parcial del perfil (nombre, apellido, teléfono, email).
  * Solo para usuarios con perfil ya completo.
  */
 router.patch(
-  '/profile',
+  '/perfil',
   clerkAuth,
-  validate(editProfileSchema),
+  validate(editarPerfilSchema),
   asyncHandler(async (req, res) => {
-    const clerkId = extractClerkUserId(req.auth);
-    const profile = await authService.updateUserProfile(clerkId, req.body);
-    res.json({ message: 'Perfil actualizado.', user: profile });
+    const clerkId = extraerIdUsuarioDeClerk(req.auth);
+    const perfil = await authService.actualizarPerfilDeUsuario(clerkId, req.body);
+    res.json({ message: 'Perfil actualizado.', user: perfil });
   })
 );
 

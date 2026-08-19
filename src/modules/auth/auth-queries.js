@@ -77,7 +77,7 @@ function insertUsuario(executor, personaId, clerkId) {
 }
 
 /** Perfil completo (usuario + persona) por clerk_id, solo activos. */
-function selectUserProfile(executor, clerkId) {
+function seleccionarPerfilDeUsuario(executor, clerkId) {
   return executor.query(
     `SELECT
          u.id,
@@ -118,7 +118,7 @@ function deactivateUserReturning(executor, clerkId) {
 }
 
 /** Desactiva un usuario sin devolverlo (webhook de Clerk). */
-function deactivateUser(executor, clerkId) {
+function desactivarUsuario(executor, clerkId) {
   return executor.query(
     `UPDATE usuarios
        SET activo = false
@@ -246,7 +246,7 @@ function selectRoleByName(executor, nombre) {
 }
 
 /** Asigna un rol a una persona (idempotente). */
-function insertPersonaRole(executor, personaId, rolId) {
+function insertarRolDePersona(executor, personaId, rolId) {
   return executor.query(
     `INSERT INTO personas_roles (persona_id, rol_id)
        VALUES ($1, $2)
@@ -283,7 +283,7 @@ function updatePersonaPartial(executor, setClause, clerkIdParam, values) {
 }
 
 /** Marca el perfil como completo con todos los datos obligatorios. */
-function completeProfile(executor, payload, clerkId) {
+function completarPerfil(executor, payload, clerkId) {
   return executor.query(
     `UPDATE personas p
        SET nombre = $1,
@@ -329,10 +329,10 @@ module.exports = {
   selectUsuarioIdAndPersona,
   reassignClerkIdToPersona,
   insertUsuario,
-  selectUserProfile,
+  seleccionarPerfilDeUsuario,
   selectRolesByPersona,
   deactivateUserReturning,
-  deactivateUser,
+  desactivarUsuario,
   reactivateUsuarioById,
   reactivateUsuarioByClerkId,
   mergePersonaIfIncomplete,
@@ -344,7 +344,7 @@ module.exports = {
   upsertUsuarioByClerkId,
   selectFullUserById,
   selectRoleByName,
-  insertPersonaRole,
+  insertarRolDePersona,
   updatePersonaPartial,
-  completeProfile,
+  completarPerfil,
 };

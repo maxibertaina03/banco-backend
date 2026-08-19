@@ -3,7 +3,7 @@
 // (Clerk) y no debe viajar al cliente. El backend lo sigue aceptando como
 // input en POST/PUT /usuarios (admin) para asociar usuarios a Clerk.
 
-function toPublicUsuario(row) {
+function aUsuarioPublico(row) {
   if (!row) return null;
   return {
     id: row.id,
@@ -14,4 +14,4 @@ function toPublicUsuario(row) {
   };
 }
 
-module.exports = { toPublicUsuario };
+module.exports = { aUsuarioPublico };

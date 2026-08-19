@@ -2,7 +2,7 @@
 // Centraliza qué campos salen al cliente: agregar columnas a la tabla no las
 // expone automáticamente.
 
-function toPublicPersona(row) {
+function aPersonaPublica(row) {
   if (!row) return null;
   return {
     id: row.id,
@@ -19,7 +19,7 @@ function toPublicPersona(row) {
 }
 
 // Versión reducida para listados/búsquedas (sin PII innecesaria).
-function toPersonaOption(row) {
+function aOpcionDePersona(row) {
   if (!row) return null;
   return {
     id: row.id,
@@ -31,4 +31,4 @@ function toPersonaOption(row) {
   };
 }
 
-module.exports = { toPublicPersona, toPersonaOption };
+module.exports = { aPersonaPublica, aOpcionDePersona };

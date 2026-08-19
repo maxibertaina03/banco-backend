@@ -2,7 +2,9 @@
 // representación pública. Los campos *_nombre y *_numero provienen de
 // JOINs opcionales y solo se incluyen si la query los devolvió.
 
-function toPublicTransaccion(row) {
+const { aNumeroDeApi } = require('../utils/dinero');
+
+function aTransaccionPublica(row) {
   if (!row) return null;
   const result = {
     id: row.id,
@@ -11,7 +13,7 @@ function toPublicTransaccion(row) {
     cuenta_destino_id: row.cuenta_destino_id,
     cbu_origen: row.cbu_origen ?? null,
     cbu_destino: row.cbu_destino ?? null,
-    monto: row.monto,
+    monto: aNumeroDeApi(row.monto),
     descripcion: row.descripcion ?? null,
     estado: row.estado,
     canal: row.canal ?? null,
@@ -31,4 +33,4 @@ function toPublicTransaccion(row) {
   return result;
 }
 
-module.exports = { toPublicTransaccion };
+module.exports = { aTransaccionPublica };

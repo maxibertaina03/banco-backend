@@ -1,5 +1,5 @@
 // Barrel export: punto único de entrada para todos los DTOs del backend.
-// Uso: const { toPublicPersona, toPublicCuenta } = require('../dtos');
+// Uso: const { aPersonaPublica, aCuentaPublica } = require('../dtos');
 
 module.exports = {
   ...require('./persona.dto'),

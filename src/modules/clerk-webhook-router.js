@@ -23,10 +23,10 @@ router.post(
     switch (evt.type) {
       case 'user.created':
       case 'user.updated':
-        await authService.syncClerkUserFromWebhook(evt.data);
+        await authService.sincronizarUsuarioDeClerkPorWebhook(evt.data);
         break;
       case 'user.deleted':
-        await authService.deactivateClerkUserFromWebhook(evt.data?.id);
+        await authService.desactivarUsuarioDeClerkPorWebhook(evt.data?.id);
         break;
       default:
         break;

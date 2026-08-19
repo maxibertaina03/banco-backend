@@ -1,40 +1,40 @@
 const pool = require('../db/pool');
 const HttpError = require('../utils/http-error');
-const { isInternalUser } = require('../utils/access-control');
+const { esUsuarioInterno } = require('../utils/access-control');
 
 function restrictQueryToCurrentPersona(field = 'persona_id') {
   return (req, _res, next) => {
-    if (isInternalUser(req.currentUser)) {
+    if (esUsuarioInterno(req.usuarioActual)) {
       return next();
     }
 
-    if (req.query[field] && req.query[field] !== req.currentUser.persona_id) {
+    if (req.query[field] && req.query[field] !== req.usuarioActual.persona_id) {
       return next(new HttpError(403, 'No puedes consultar recursos de otra persona.'));
     }
 
-    req.query[field] = req.currentUser.persona_id;
+    req.query[field] = req.usuarioActual.persona_id;
     return next();
   };
 }
 
 function injectCurrentPersona(field = 'persona_id') {
   return (req, _res, next) => {
-    if (isInternalUser(req.currentUser)) {
+    if (esUsuarioInterno(req.usuarioActual)) {
       return next();
     }
 
-    if (req.body[field] && req.body[field] !== req.currentUser.persona_id) {
+    if (req.body[field] && req.body[field] !== req.usuarioActual.persona_id) {
       return next(new HttpError(403, 'No puedes crear recursos para otra persona.'));
     }
 
-    req.body[field] = req.currentUser.persona_id;
+    req.body[field] = req.usuarioActual.persona_id;
     return next();
   };
 }
 
 function requireOwnershipByEntity(table, ownerField = 'persona_id') {
   return async (req, _res, next) => {
-    if (isInternalUser(req.currentUser)) {
+    if (esUsuarioInterno(req.usuarioActual)) {
       return next();
     }
 
@@ -45,7 +45,7 @@ function requireOwnershipByEntity(table, ownerField = 'persona_id') {
         return next(new HttpError(404, `No existe el recurso en ${table} con id ${req.params.id}.`));
       }
 
-      if (result.rows[0][ownerField] !== req.currentUser.persona_id) {
+      if (result.rows[0][ownerField] !== req.usuarioActual.persona_id) {
         return next(new HttpError(403, 'No puedes acceder a recursos de otra persona.'));
       }
 

@@ -1,6 +1,6 @@
 // Tests del service de transacciones usando Dependency Injection.
 // El service expone `createTransaccionesService({ pool, centralBankService,
-// writeAuditLog })` que permite inyectar mocks sin tocar el sistema de
+// escribirLogDeAuditoria })` que permite inyectar mocks sin tocar el sistema de
 // mocks de módulos.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -10,11 +10,11 @@ const { createTransaccionesService } = await import('../../src/modules/transacci
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
-// `roles` debe ser un array de strings: así lo consume `hasAnyRole` en
+// `roles` debe ser un array de strings: así lo consume `tieneAlgunRol` en
 // access-control.js (el middleware de auth normaliza los roles del usuario
-// autenticado a strings antes de poblar `req.currentUser`).
-const internalUser = { id: 'u-admin', persona_id: 'p-admin', roles: ['admin'] };
-const clientUser = { id: 'u-1', persona_id: 'p-1', roles: ['cliente'] };
+// autenticado a strings antes de poblar `req.usuarioActual`).
+const usuarioInterno = { id: 'u-admin', persona_id: 'p-admin', roles: ['admin'] };
+const usuarioCliente = { id: 'u-1', persona_id: 'p-1', roles: ['cliente'] };
 
 // Construye un set de mocks listo para inyectar en createTransaccionesService.
 function buildMocks() {
@@ -27,16 +27,16 @@ function buildMocks() {
     query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
   };
   const centralBankService = {
-    createTransaction: vi.fn(),
+    crearTransaccion: vi.fn(),
     findPersonByAlias: vi.fn(),
     findPersonByCbu: vi.fn(),
     extractCentralCbu: vi.fn((data) => data?.cbu ?? null),
-    extractCentralTransactionId: vi.fn((data) => data?.transactionId ?? null),
-    syncIncomingTransactions: vi.fn(),
+    extraerIdTransaccionCentral: vi.fn((data) => data?.idTransaccion ?? null),
+    sincronizarTransaccionesEntrantes: vi.fn(),
   };
-  const writeAuditLog = vi.fn().mockResolvedValue(undefined);
+  const escribirLogDeAuditoria = vi.fn().mockResolvedValue(undefined);
 
-  return { pool, mockClient, centralBankService, writeAuditLog };
+  return { pool, mockClient, centralBankService, escribirLogDeAuditoria };
 }
 
 function buildService(deps) {
@@ -47,15 +47,15 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-// ── listForUser ─────────────────────────────────────────────────────────────
+// ── listarParaUsuario ─────────────────────────────────────────────────────────────
 
-describe('listForUser', () => {
+describe('listarParaUsuario', () => {
   it('usuario interno: consulta sin filtro de persona', async () => {
     const { pool, ...rest } = buildMocks();
     pool.query.mockResolvedValueOnce({ rows: [{ id: 't1' }, { id: 't2' }] });
     const service = buildService({ pool, ...rest });
 
-    const result = await service.listForUser(internalUser);
+    const result = await service.listarParaUsuario(usuarioInterno);
 
     expect(pool.query).toHaveBeenCalledOnce();
     expect(pool.query.mock.calls[0][0]).toContain('SELECT * FROM transacciones');
@@ -67,7 +67,7 @@ describe('listForUser', () => {
     pool.query.mockResolvedValueOnce({ rows: [{ id: 't1' }] });
     const service = buildService({ pool, ...rest });
 
-    await service.listForUser(clientUser);
+    await service.listarParaUsuario(usuarioCliente);
 
     const [sql, params] = pool.query.mock.calls[0];
     expect(sql).toContain('origen.persona_id = $1 OR destino.persona_id = $1');
@@ -75,15 +75,15 @@ describe('listForUser', () => {
   });
 });
 
-// ── getByIdForUser ──────────────────────────────────────────────────────────
+// ── obtenerPorIdParaUsuario ──────────────────────────────────────────────────────────
 
-describe('getByIdForUser', () => {
+describe('obtenerPorIdParaUsuario', () => {
   it('lanza 404 si no se encuentra', async () => {
     const { pool, ...rest } = buildMocks();
     pool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });
     const service = buildService({ pool, ...rest });
 
-    await expect(service.getByIdForUser('t-x', clientUser)).rejects.toMatchObject({ status: 404 });
+    await expect(service.obtenerPorIdParaUsuario('t-x', usuarioCliente)).rejects.toMatchObject({ status: 404 });
   });
 
   it('devuelve la transacción si existe', async () => {
@@ -91,14 +91,14 @@ describe('getByIdForUser', () => {
     pool.query.mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 't1', monto: '100' }] });
     const service = buildService({ pool, ...rest });
 
-    const result = await service.getByIdForUser('t1', clientUser);
+    const result = await service.obtenerPorIdParaUsuario('t1', usuarioCliente);
     expect(result).toEqual({ id: 't1', monto: '100' });
   });
 });
 
-// ── resolveRecipient ────────────────────────────────────────────────────────
+// ── resolverDestinatario ────────────────────────────────────────────────────────
 
-describe('resolveRecipient', () => {
+describe('resolverDestinatario', () => {
   it('consulta Brocoly por alias y normaliza la respuesta', async () => {
     const mocks = buildMocks();
     mocks.centralBankService.findPersonByAlias.mockResolvedValueOnce({
@@ -110,7 +110,7 @@ describe('resolveRecipient', () => {
     });
     const service = buildService(mocks);
 
-    const result = await service.resolveRecipient({ alias: 'juan.alias' });
+    const result = await service.resolverDestinatario({ alias: 'juan.alias' });
 
     expect(mocks.centralBankService.findPersonByAlias).toHaveBeenCalledWith('juan.alias');
     expect(mocks.centralBankService.findPersonByCbu).not.toHaveBeenCalled();
@@ -132,7 +132,7 @@ describe('resolveRecipient', () => {
     });
     const service = buildService(mocks);
 
-    const result = await service.resolveRecipient({ cbu });
+    const result = await service.resolverDestinatario({ cbu });
 
     expect(mocks.centralBankService.findPersonByCbu).toHaveBeenCalledWith(cbu);
     expect(result.titular).toBe('María García');
@@ -148,19 +148,19 @@ describe('resolveRecipient', () => {
     });
     const service = buildService(mocks);
 
-    await service.resolveRecipient({ alias: 'cache.test' });
-    await service.resolveRecipient({ alias: 'cache.test' });
+    await service.resolverDestinatario({ alias: 'cache.test' });
+    await service.resolverDestinatario({ alias: 'cache.test' });
 
     expect(mocks.centralBankService.findPersonByAlias).toHaveBeenCalledOnce();
   });
 });
 
-// ── createContractTransfer ──────────────────────────────────────────────────
+// ── crearTransferenciaPorContrato ──────────────────────────────────────────────────
 
-describe('createContractTransfer', () => {
+describe('crearTransferenciaPorContrato', () => {
   // Configura las respuestas del client.query() en el orden que las invoca
   // el service durante una transferencia.
-  function setupTransferQueries(mockClient, { origin, insertedRow }) {
+  function prepararQueriesDeTransferencia(mockClient, { origin, insertedRow }) {
     let cbuCallCount = 0;
     mockClient.query.mockImplementation((sqlOrConfig) => {
       const text = typeof sqlOrConfig === 'string' ? sqlOrConfig : sqlOrConfig?.text || '';
@@ -202,28 +202,28 @@ describe('createContractTransfer', () => {
       nombre: 'Juan',
       apellido: 'Pérez',
     };
-    setupTransferQueries(mocks.mockClient, {
+    prepararQueriesDeTransferencia(mocks.mockClient, {
       origin,
       insertedRow: { id: 'tx-1', estado: 'completada', monto: '100' },
     });
-    mocks.centralBankService.createTransaction.mockResolvedValueOnce({
-      data: { transactionId: 'central-tx-1', cbu: '9'.repeat(22) },
+    mocks.centralBankService.crearTransaccion.mockResolvedValueOnce({
+      data: { idTransaccion: 'central-tx-1', cbu: '9'.repeat(22) },
     });
     const service = buildService(mocks);
 
-    const result = await service.createContractTransfer({
+    const result = await service.crearTransferenciaPorContrato({
       cbuOrigen: origin.cbu,
       cbuDestino: '9'.repeat(22),
       importe: 100,
       saldoOrigen: 5000,
-      currentUser: clientUser,
+      usuarioActual: usuarioCliente,
       ipAddress: '127.0.0.1',
     });
 
     expect(result.statusCode).toBe(201);
     expect(result.stateLabel).toBe('aprobada');
-    expect(result.transaction.id).toBe('tx-1');
-    expect(mocks.writeAuditLog).toHaveBeenCalledOnce();
+    expect(result.transaccion.id).toBe('tx-1');
+    expect(mocks.escribirLogDeAuditoria).toHaveBeenCalledOnce();
   });
 
   it('rechazada por saldo insuficiente (422 del banco central): statusCode 422', async () => {
@@ -238,21 +238,21 @@ describe('createContractTransfer', () => {
       nombre: 'Juan',
       apellido: 'Pérez',
     };
-    setupTransferQueries(mocks.mockClient, {
+    prepararQueriesDeTransferencia(mocks.mockClient, {
       origin,
       insertedRow: { id: 'tx-2', estado: 'rechazada', monto: '1000' },
     });
     const err = new HttpError(422, 'Saldo insuficiente');
-    err.details = { centralBank: { transactionId: 'central-rejected', cbu: '9'.repeat(22) } };
-    mocks.centralBankService.createTransaction.mockRejectedValueOnce(err);
+    err.details = { centralBank: { idTransaccion: 'central-rejected', cbu: '9'.repeat(22) } };
+    mocks.centralBankService.crearTransaccion.mockRejectedValueOnce(err);
     const service = buildService(mocks);
 
-    const result = await service.createContractTransfer({
+    const result = await service.crearTransferenciaPorContrato({
       cbuOrigen: origin.cbu,
       cbuDestino: '9'.repeat(22),
       importe: 1000,
       saldoOrigen: 50,
-      currentUser: clientUser,
+      usuarioActual: usuarioCliente,
       ipAddress: '127.0.0.1',
     });
 
@@ -262,19 +262,19 @@ describe('createContractTransfer', () => {
 
   it('lanza 404 si el CBU origen no existe localmente', async () => {
     const mocks = buildMocks();
-    setupTransferQueries(mocks.mockClient, {
+    prepararQueriesDeTransferencia(mocks.mockClient, {
       origin: null,
       insertedRow: { id: 'never' },
     });
     const service = buildService(mocks);
 
     await expect(
-      service.createContractTransfer({
+      service.crearTransferenciaPorContrato({
         cbuOrigen: '0'.repeat(22),
         cbuDestino: '9'.repeat(22),
         importe: 100,
         saldoOrigen: 100,
-        currentUser: clientUser,
+        usuarioActual: usuarioCliente,
         ipAddress: '127.0.0.1',
       })
     ).rejects.toMatchObject({ status: 404 });
@@ -291,12 +291,12 @@ describe('createContractTransfer', () => {
     const service = buildService(mocks);
 
     await expect(
-      service.createContractTransfer({
+      service.crearTransferenciaPorContrato({
         cbuOrigen: '1'.repeat(22),
         cbuDestino: '9'.repeat(22),
         importe: 100,
         saldoOrigen: 100,
-        currentUser: clientUser,
+        usuarioActual: usuarioCliente,
         ipAddress: '127.0.0.1',
       })
     ).rejects.toThrow('DB error simulado');
@@ -311,9 +311,9 @@ describe('createContractTransfer', () => {
   });
 });
 
-// ── createDeposit ───────────────────────────────────────────────────────────
+// ── crearDeposito ───────────────────────────────────────────────────────────
 
-describe('createDeposit', () => {
+describe('crearDeposito', () => {
   function setupDepositQueries(mockClient, { destination, insertedRow }) {
     mockClient.query.mockImplementation((sqlOrConfig) => {
       const text = typeof sqlOrConfig === 'string' ? sqlOrConfig : sqlOrConfig?.text || '';
@@ -321,7 +321,7 @@ describe('createDeposit', () => {
       if (/^(BEGIN|COMMIT|ROLLBACK)/.test(text)) {
         return Promise.resolve({ rows: [] });
       }
-      // getLocalAccountById (destino)
+      // obtenerCuentaLocalPorId (destino)
       if (text.includes('WHERE c.id = $1') && text.includes('FOR UPDATE')) {
         return Promise.resolve({ rows: destination ? [destination] : [] });
       }
@@ -360,24 +360,26 @@ describe('createDeposit', () => {
     });
     const service = buildService(mocks);
 
-    const result = await service.createDeposit({
+    const result = await service.crearDeposito({
       cuenta_destino_id: 'c-1',
       monto: 500,
       descripcion: 'Depósito sucursal centro',
-      currentUser: internalUser,
+      usuarioActual: usuarioInterno,
       ipAddress: '127.0.0.1',
     });
 
-    expect(result.transaction.id).toBe('tx-deposit-1');
+    expect(result.transaccion.id).toBe('tx-deposit-1');
     expect(result.destinationName).toBe('Juan Pérez');
-    expect(mocks.writeAuditLog).toHaveBeenCalledOnce();
+    expect(mocks.escribirLogDeAuditoria).toHaveBeenCalledOnce();
 
     // Verifica que se haya hecho UPDATE de saldo con el monto correcto.
     const updateCalls = mocks.mockClient.query.mock.calls.filter((c) =>
       (typeof c[0] === 'string' ? c[0] : c[0]?.text || '').startsWith('UPDATE cuentas SET saldo')
     );
     expect(updateCalls).toHaveLength(1);
-    expect(updateCalls[0][1]).toEqual([500, 'c-1']);
+    // El importe viaja como string decimal exacto, no como float: `Dinero`
+    // normaliza antes de tocar la BD para no perder centavos por IEEE-754.
+    expect(updateCalls[0][1]).toEqual(['500.00', 'c-1']);
   });
 
   it('rechaza monto = 0 con 400', async () => {
@@ -385,10 +387,10 @@ describe('createDeposit', () => {
     const service = buildService(mocks);
 
     await expect(
-      service.createDeposit({
+      service.crearDeposito({
         cuenta_destino_id: 'c-1',
         monto: 0,
-        currentUser: internalUser,
+        usuarioActual: usuarioInterno,
         ipAddress: '127.0.0.1',
       })
     ).rejects.toMatchObject({ status: 400 });
@@ -400,10 +402,10 @@ describe('createDeposit', () => {
     const service = buildService(mocks);
 
     await expect(
-      service.createDeposit({
+      service.crearDeposito({
         cuenta_destino_id: 'c-1',
         monto: -100,
-        currentUser: internalUser,
+        usuarioActual: usuarioInterno,
         ipAddress: '127.0.0.1',
       })
     ).rejects.toMatchObject({ status: 400 });
@@ -418,10 +420,10 @@ describe('createDeposit', () => {
     const service = buildService(mocks);
 
     await expect(
-      service.createDeposit({
+      service.crearDeposito({
         cuenta_destino_id: 'c-ghost',
         monto: 100,
-        currentUser: internalUser,
+        usuarioActual: usuarioInterno,
         ipAddress: '127.0.0.1',
       })
     ).rejects.toMatchObject({ status: 404 });
@@ -443,10 +445,10 @@ describe('createDeposit', () => {
     const service = buildService(mocks);
 
     await expect(
-      service.createDeposit({
+      service.crearDeposito({
         cuenta_destino_id: 'c-1',
         monto: 100,
-        currentUser: internalUser,
+        usuarioActual: usuarioInterno,
         ipAddress: '127.0.0.1',
       })
     ).rejects.toMatchObject({ status: 400 });
@@ -478,10 +480,10 @@ describe('createDeposit', () => {
     const service = buildService(mocks);
 
     await expect(
-      service.createDeposit({
+      service.crearDeposito({
         cuenta_destino_id: 'c-1',
         monto: 100,
-        currentUser: internalUser,
+        usuarioActual: usuarioInterno,
         ipAddress: '127.0.0.1',
       })
     ).rejects.toThrow('insert falló');

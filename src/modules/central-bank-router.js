@@ -2,13 +2,13 @@ const express = require('express');
 const { z } = require('zod');
 const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
-const requireRoles = require('../middlewares/require-roles');
+const requerirRoles = require('../middlewares/require-roles');
 const centralBankService = require('./central-bank-service');
 const { uuidLike } = require('../utils/schemas');
 
 const router = express.Router();
-const internalOnly = requireRoles(['admin', 'operador', 'tesoreria']);
-const adminOnly = requireRoles(['admin']);
+const internalOnly = requerirRoles(['admin', 'operador', 'tesoreria']);
+const adminOnly = requerirRoles(['admin']);
 
 const environmentSchema = z.object({
   environment: z.enum(['test', 'prod']).optional(),
@@ -64,20 +64,20 @@ const transactionsQuerySchema = environmentSchema.extend({
   minutes: z.coerce.number().int().min(1).max(1440).optional(),
 });
 
-const syncAccountsQuerySchema = environmentSchema.extend({
+const cuentasASincronizarQuerySchema = environmentSchema.extend({
   limit: z.coerce.number().int().positive().max(200).optional(),
 });
 
-const syncAccountParamsSchema = z.object({
-  accountId: uuidLike,
+const cuentaASincronizarParamsSchema = z.object({
+  idCuenta: uuidLike,
 });
 
 const bankCodeParamsSchema = z.object({
   bankCode: z.coerce.number().int().positive(),
 });
 
-const syncAccountsBodySchema = environmentSchema.extend({
-  accountIds: z.array(uuidLike).optional(),
+const cuentasASincronizarBodySchema = environmentSchema.extend({
+  idsCuenta: z.array(uuidLike).optional(),
   limit: z.coerce.number().int().positive().max(200).optional(),
 });
 
@@ -177,8 +177,8 @@ router.post(
   internalOnly,
   validate(localPersonRegistrationSchema),
   asyncHandler(async (req, res) => {
-    const result = await centralBankService.registerLocalPersonFromCentral(req.body, {
-      usuarioId: req.currentUser?.id || null,
+    const result = await centralBankService.registrarPersonaLocalDesdeCentral(req.body, {
+      usuarioId: req.usuarioActual?.id || null,
       ipAddress: req.ip || null,
     });
     res.status(result.status).json(result);
@@ -227,7 +227,7 @@ router.get(
   internalOnly,
   validate(transactionsQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
-    const data = await centralBankService.listTransactions({
+    const data = await centralBankService.listarTransacciones({
       environment: req.query.environment,
       minutes: req.query.minutes,
     });
@@ -241,7 +241,7 @@ router.post(
   validate(transactionSchema),
   asyncHandler(async (req, res) => {
     const { environment, ...payload } = req.body;
-    const data = await centralBankService.createTransaction(payload, environment);
+    const data = await centralBankService.crearTransaccion(payload, environment);
     res.status(201).json(data);
   })
 );
@@ -249,31 +249,31 @@ router.post(
 router.get(
   '/sync/accounts',
   internalOnly,
-  validate(syncAccountsQuerySchema, 'query'),
+  validate(cuentasASincronizarQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
-    const accounts = await centralBankService.listSyncAccounts(req.query);
-    res.json({ accounts });
+    const cuentas = await centralBankService.listarCuentasASincronizar(req.query);
+    res.json({ cuentas });
   })
 );
 
 router.post(
   '/sync/accounts/bulk',
   internalOnly,
-  validate(syncAccountsBodySchema),
+  validate(cuentasASincronizarBodySchema),
   asyncHandler(async (req, res) => {
-    const result = await centralBankService.syncAccounts(req.body);
+    const result = await centralBankService.sincronizarCuentas(req.body);
     res.status(201).json(result);
   })
 );
 
 router.post(
-  '/sync/accounts/:accountId',
+  '/sync/accounts/:idCuenta',
   internalOnly,
-  validate(syncAccountParamsSchema, 'params'),
+  validate(cuentaASincronizarParamsSchema, 'params'),
   validate(environmentSchema),
   asyncHandler(async (req, res) => {
-    const result = await centralBankService.syncAccount(
-      req.params.accountId,
+    const result = await centralBankService.sincronizarCuenta(
+      req.params.idCuenta,
       req.body.environment
     );
     res.status(201).json(result);
@@ -285,7 +285,7 @@ router.post(
   internalOnly,
   validate(syncIncomingSchema),
   asyncHandler(async (req, res) => {
-    const result = await centralBankService.syncIncomingTransactions(req.body);
+    const result = await centralBankService.sincronizarTransaccionesEntrantes(req.body);
     res.json(result);
   })
 );

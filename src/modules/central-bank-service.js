@@ -1,5 +1,6 @@
 const pool = require('../db/pool');
 const HttpError = require('../utils/http-error');
+const { Dinero } = require('../utils/dinero');
 const {
   getCentralBankConfig,
   getPublicCentralBankConfig,
@@ -10,15 +11,15 @@ const {
   requestWithApiKey,
   requestWithRegisterToken,
 } = require('./central-bank-client');
-const { writeAuditLog } = require('../utils/audit');
+const { escribirLogDeAuditoria } = require('../utils/audit');
 const { createTTLCache } = require('../utils/ttl-cache');
 const {
-  generateLocalAccountNumber,
+  generarNumeroDeCuentaLocal,
   sanitizeCentralText,
   sanitizeDni,
   buildAliasCandidates,
   extractCentralCbu,
-  extractCentralTransactionId,
+  extraerIdTransaccionCentral,
   extractCentralAlias,
   toSyncIssues,
 } = require('./central-bank/central-bank-helpers');
@@ -59,8 +60,8 @@ async function tryAssignAlias(cbu, candidates, environment) {
   };
 }
 
-async function getSyncAccountById(accountId) {
-  const result = await q.selectSyncAccountById(pool, accountId);
+async function obtenerCuentaASincronizarPorId(idCuenta) {
+  const result = await q.seleccionarCuentaASincronizarPorId(pool, idCuenta);
   return result.rows[0] || null;
 }
 
@@ -143,7 +144,7 @@ async function registerPerson(payload, environment, { includeResponseMeta = fals
   });
 }
 
-async function registerLocalPersonFromCentral(
+async function registrarPersonaLocalDesdeCentral(
   payload,
   auditContext = { usuarioId: null, ipAddress: null }
 ) {
@@ -208,52 +209,52 @@ async function registerLocalPersonFromCentral(
     const roleResult = await q.selectClienteRoleId(client);
 
     if (roleResult.rowCount > 0) {
-      await q.insertPersonaRole(client, persona.id, roleResult.rows[0].id);
+      await q.insertarRolDePersona(client, persona.id, roleResult.rows[0].id);
     }
 
-    const accountTypeResult = await q.selectAccountTypeByName(client, DEFAULT_ACCOUNT_TYPE_NAME);
+    const resultadoTipoDeCuenta = await q.seleccionarTipoDeCuentaPorNombre(client, DEFAULT_ACCOUNT_TYPE_NAME);
 
-    if (accountTypeResult.rowCount === 0) {
+    if (resultadoTipoDeCuenta.rowCount === 0) {
       throw new HttpError(500, 'No se encontró el tipo de cuenta Caja de Ahorro.');
     }
 
-    const cbuOwnerResult = await q.selectAccountOwnerByCbu(client, centralCbu);
+    const cbuOwnerResult = await q.seleccionarTitularDeCuentaPorCbu(client, centralCbu);
 
     if (cbuOwnerResult.rowCount > 0 && cbuOwnerResult.rows[0].persona_id !== persona.id) {
       throw new HttpError(409, 'El CBU devuelto por Banco Central ya está asociado a otra persona local.');
     }
 
-    let accountResult;
+    let resultadoCuenta;
 
     if (cbuOwnerResult.rowCount > 0) {
-      accountResult = await q.selectAccountById(client, cbuOwnerResult.rows[0].id);
+      resultadoCuenta = await q.seleccionarCuentaPorId(client, cbuOwnerResult.rows[0].id);
     } else {
-      accountResult = await q.selectFirstAccountByPersona(client, persona.id);
+      resultadoCuenta = await q.seleccionarPrimeraCuentaDePersona(client, persona.id);
     }
 
-    let account;
+    let cuenta;
 
-    if (accountResult.rowCount > 0) {
-      account = (
-        await q.linkAccountToCentral(client, {
+    if (resultadoCuenta.rowCount > 0) {
+      cuenta = (
+        await q.vincularCuentaConCentral(client, {
           cbu: centralCbu,
           alias: centralAlias,
-          id: accountResult.rows[0].id,
+          id: resultadoCuenta.rows[0].id,
         })
       ).rows[0];
     } else {
-      let createdAccount = null;
+      let cuentaCreada = null;
       let attempts = 0;
 
-      while (!createdAccount && attempts < 5) {
+      while (!cuentaCreada && attempts < 5) {
         attempts += 1;
 
         try {
-          createdAccount = (
-            await q.insertAccountFromCentral(client, {
+          cuentaCreada = (
+            await q.insertarCuentaDesdeCentral(client, {
               personaId: persona.id,
-              tipoCuentaId: accountTypeResult.rows[0].id,
-              numeroCuenta: generateLocalAccountNumber(persona.id),
+              tipoCuentaId: resultadoTipoDeCuenta.rows[0].id,
+              numeroCuenta: generarNumeroDeCuentaLocal(persona.id),
               cbu: centralCbu,
               alias: centralAlias,
             })
@@ -267,14 +268,14 @@ async function registerLocalPersonFromCentral(
         }
       }
 
-      if (!createdAccount) {
+      if (!cuentaCreada) {
         throw new HttpError(500, 'No se pudo generar una cuenta local única para la persona.');
       }
 
-      account = createdAccount;
+      cuenta = cuentaCreada;
     }
 
-    await writeAuditLog(client, {
+    await escribirLogDeAuditoria(client, {
       usuarioId: auditContext.usuarioId,
       accion: 'CREATE',
       entidad: 'personas',
@@ -283,7 +284,7 @@ async function registerLocalPersonFromCentral(
         source: 'central-bank',
         centralStatus: registrationResponse.status,
         persona,
-        cuenta: account,
+        cuenta: cuenta,
       },
       ipAddress: auditContext.ipAddress,
     });
@@ -299,7 +300,7 @@ async function registerLocalPersonFromCentral(
       centralBankStatus: registrationResponse.status,
       centralBankPerson: centralPerson,
       persona,
-      cuenta: account,
+      cuenta: cuenta,
     };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -321,7 +322,7 @@ async function assignAlias(cbu, alias, environment) {
     environment,
   });
 
-  await q.updateAccountAlias(pool, alias, cbu);
+  await q.actualizarAliasDeCuenta(pool, alias, cbu);
 
   return centralResponse;
 }
@@ -332,7 +333,7 @@ async function findPersonByAlias(alias, environment) {
   });
 }
 
-async function createTransaction(payload, environment, { includeResponseMeta = false } = {}) {
+async function crearTransaccion(payload, environment, { includeResponseMeta = false } = {}) {
   return requestWithApiKey('post', '/transactions', {
     data: payload,
     environment,
@@ -340,51 +341,51 @@ async function createTransaction(payload, environment, { includeResponseMeta = f
   });
 }
 
-async function listTransactions({ environment, minutes } = {}) {
+async function listarTransacciones({ environment, minutes } = {}) {
   return requestWithApiKey('get', '/transactions', {
     environment,
     params: minutes ? { minutos: minutes } : undefined,
   });
 }
 
-async function listSyncAccounts({ environment, limit = DEFAULT_SYNC_LIMIT } = {}) {
+async function listarCuentasASincronizar({ environment, limit = DEFAULT_SYNC_LIMIT } = {}) {
   normalizeEnvironment(environment);
 
   const safeLimit = Number.isFinite(Number(limit))
     ? Math.max(1, Math.min(Number(limit), 200))
     : DEFAULT_SYNC_LIMIT;
 
-  const result = await q.selectSyncAccounts(pool, safeLimit);
+  const result = await q.seleccionarCuentasASincronizar(pool, safeLimit);
 
-  return result.rows.map((account) => {
-    const issues = toSyncIssues(account);
+  return result.rows.map((cuenta) => {
+    const issues = toSyncIssues(cuenta);
     return {
-      ...account,
+      ...cuenta,
       sync_ready: issues.length === 0,
       sync_issues: issues,
-      suggested_alias: buildAliasCandidates(account, 'orbital')[0] || null,
+      suggested_alias: buildAliasCandidates(cuenta, 'orbital')[0] || null,
     };
   });
 }
 
-async function syncAccount(accountId, environment) {
+async function sincronizarCuenta(idCuenta, environment) {
   const config = await getCentralBankConfig(environment);
-  const account = await getSyncAccountById(accountId);
+  const cuenta = await obtenerCuentaASincronizarPorId(idCuenta);
 
-  if (!account) {
+  if (!cuenta) {
     throw new HttpError(404, 'No se encontró la cuenta indicada.');
   }
 
-  const issues = toSyncIssues(account);
+  const issues = toSyncIssues(cuenta);
 
   if (issues.length > 0) {
     throw new HttpError(400, `La cuenta no está lista para sincronizar. ${issues.join(' ')}`);
   }
 
   const payload = {
-    nombre: sanitizeCentralText(account.nombre),
-    apellido: sanitizeCentralText(account.apellido),
-    dni: sanitizeDni(account.dni),
+    nombre: sanitizeCentralText(cuenta.nombre),
+    apellido: sanitizeCentralText(cuenta.apellido),
+    dni: sanitizeDni(cuenta.dni),
   };
 
   let registrationResponse;
@@ -424,14 +425,14 @@ async function syncAccount(accountId, environment) {
   };
 
   if (registrationStatus !== 200) {
-    const aliasCandidates = buildAliasCandidates(account, config.bank_name);
+    const aliasCandidates = buildAliasCandidates(cuenta, config.bank_name);
     aliasAttempt = await tryAssignAlias(centralCbu, aliasCandidates, environment);
   }
 
-  const updatedAccount = await q.updateAccountSyncResult(pool, {
+  const cuentaActualizada = await q.resultadoSincronizacionCuenta(pool, {
     cbu: centralCbu,
     alias: aliasAttempt.assignedAlias,
-    accountId,
+    idCuenta,
   });
 
   const warnings = [...aliasAttempt.warnings];
@@ -446,27 +447,27 @@ async function syncAccount(accountId, environment) {
     );
   }
 
-  if (centralCbu !== account.cbu) {
+  if (centralCbu !== cuenta.cbu) {
     warnings.push(
-      `El CBU local se actualizó desde ${account.cbu} a ${centralCbu} para mantener consistencia con el Banco Central.`
+      `El CBU local se actualizó desde ${cuenta.cbu} a ${centralCbu} para mantener consistencia con el Banco Central.`
     );
   }
 
   return {
-    account: {
-      ...updatedAccount.rows[0],
-      tipo_cuenta_nombre: account.tipo_cuenta_nombre,
-      nombre: account.nombre,
-      apellido: account.apellido,
-      dni: account.dni,
-      email: account.email,
+    cuenta: {
+      ...cuentaActualizada.rows[0],
+      tipo_cuenta_nombre: cuenta.tipo_cuenta_nombre,
+      nombre: cuenta.nombre,
+      apellido: cuenta.apellido,
+      dni: cuenta.dni,
+      email: cuenta.email,
     },
     persona: {
-      id: account.persona_id,
-      nombre: account.nombre,
-      apellido: account.apellido,
-      dni: account.dni,
-      email: account.email,
+      id: cuenta.persona_id,
+      nombre: cuenta.nombre,
+      apellido: cuenta.apellido,
+      dni: cuenta.dni,
+      email: cuenta.email,
     },
     centralBank: {
       status: registrationStatus,
@@ -478,25 +479,25 @@ async function syncAccount(accountId, environment) {
   };
 }
 
-async function syncAccounts({ environment, accountIds, limit = DEFAULT_SYNC_LIMIT } = {}) {
-  const accounts = Array.isArray(accountIds) && accountIds.length > 0
-    ? await Promise.all(accountIds.map((accountId) => getSyncAccountById(accountId)))
-    : await listSyncAccounts({ environment, limit });
+async function sincronizarCuentas({ environment, idsCuenta, limit = DEFAULT_SYNC_LIMIT } = {}) {
+  const cuentas = Array.isArray(idsCuenta) && idsCuenta.length > 0
+    ? await Promise.all(idsCuenta.map((idCuenta) => obtenerCuentaASincronizarPorId(idCuenta)))
+    : await listarCuentasASincronizar({ environment, limit });
 
-  const filteredAccounts = accounts.filter(Boolean);
+  const cuentasFiltradas = cuentas.filter(Boolean);
   const results = [];
 
-  for (const account of filteredAccounts) {
+  for (const cuenta of cuentasFiltradas) {
     try {
-      const result = await syncAccount(account.id, environment);
+      const result = await sincronizarCuenta(cuenta.id, environment);
       results.push({
-        accountId: account.id,
+        idCuenta: cuenta.id,
         status: 'success',
         result,
       });
     } catch (error) {
       results.push({
-        accountId: account.id,
+        idCuenta: cuenta.id,
         status: 'error',
         error: error instanceof Error ? error.message : 'No se pudo sincronizar la cuenta.',
       });
@@ -511,24 +512,24 @@ async function syncAccounts({ environment, accountIds, limit = DEFAULT_SYNC_LIMI
   };
 }
 
-async function syncIncomingTransactions({ environment, minutes = 30, personaCbus } = {}) {
-  const centralTransactions = await listTransactions({ environment, minutes });
+async function sincronizarTransaccionesEntrantes({ environment, minutes = 30, personaCbus } = {}) {
+  const transaccionesDelCentral = await listarTransacciones({ environment, minutes });
 
-  if (!Array.isArray(centralTransactions) || centralTransactions.length === 0) {
+  if (!Array.isArray(transaccionesDelCentral) || transaccionesDelCentral.length === 0) {
     return { processed: 0, synced: 0, already_recorded: 0, errors: 0, results: [] };
   }
 
   const cbuResult =
     Array.isArray(personaCbus) && personaCbus.length > 0
-      ? await q.selectActiveAccountsByCbus(pool, personaCbus)
-      : await q.selectAllActiveAccountsWithCbu(pool);
+      ? await q.seleccionarCuentasActivasPorCbus(pool, personaCbus)
+      : await q.seleccionarCuentasActivasConCbu(pool);
 
   const ourCbus = new Map(cbuResult.rows.map((row) => [row.cbu, row]));
 
   // Filter candidates first to avoid checking IDs we'll skip anyway
-  const candidates = centralTransactions
+  const candidates = transaccionesDelCentral
     .filter((tx) => tx.estado === 'aprobada' && ourCbus.has(tx.cbuDestino))
-    .map((tx) => ({ ...tx, _txId: tx._id || tx.id || tx.transactionId }))
+    .map((tx) => ({ ...tx, _txId: tx._id || tx.id || tx.transaccionId }))
     .filter((tx) => Boolean(tx._txId));
 
   if (candidates.length === 0) {
@@ -545,14 +546,23 @@ async function syncIncomingTransactions({ environment, minutes = 30, personaCbus
   for (const tx of candidates) {
     const txId = tx._txId;
     const cbuDestino = tx.cbuDestino;
-    const importe = tx.importe;
-
     if (existingIds.has(txId)) {
       results.push({ id: txId, status: 'already_recorded' });
       continue;
     }
 
-    const destAccount = ourCbus.get(cbuDestino);
+    // El importe viene como número JSON desde el Banco Central. Se normaliza a
+    // decimal exacto antes de acreditarlo para no arrastrar el float a la BD.
+    let importeExacto;
+    try {
+      importeExacto = Dinero.desde(tx.importe).redondeado();
+    } catch {
+      results.push({ id: tx._txId, status: 'error', error: `Importe inválido: ${tx.importe}` });
+      continue;
+    }
+    const importe = importeExacto.aString();
+
+    const cuentaDestino = ourCbus.get(cbuDestino);
     const senderName = [tx.personaOrigen?.nombre, tx.personaOrigen?.apellido]
       .filter(Boolean)
       .join(' ') || null;
@@ -562,17 +572,17 @@ async function syncIncomingTransactions({ environment, minutes = 30, personaCbus
     try {
       await client.query('BEGIN');
 
-      const typeResult = await q.selectTransferTypeId(client);
+      const typeResult = await q.seleccionarIdTipoTransferencia(client);
 
       if (typeResult.rowCount === 0) {
         throw new HttpError(500, 'No se encontró el tipo de transacción transferencia.');
       }
 
-      await q.creditAccount(client, importe, destAccount.id);
+      await q.acreditarEnCuenta(client, importe, cuentaDestino.id);
 
-      await q.insertIncomingTransaction(client, {
+      await q.insertarTransaccionEntrante(client, {
         typeId: typeResult.rows[0].id,
-        destAccountId: destAccount.id,
+        idCuentaDestino: cuentaDestino.id,
         importe,
         txId,
         cbuOrigen: tx.cbuOrigen,
@@ -629,24 +639,24 @@ async function saveBankRegistration(centralResponse) {
 
 module.exports = {
   assignAlias,
-  createTransaction,
+  crearTransaccion,
   extractCentralCbu,
   extractCentralAlias,
-  extractCentralTransactionId,
+  extraerIdTransaccionCentral,
   findPersonByAlias,
   findPersonByCbu,
   getBankByCode,
   getConfig,
   getLocalRegistration,
   listBanks,
-  listSyncAccounts,
-  listTransactions,
+  listarCuentasASincronizar,
+  listarTransacciones,
   registerBank,
-  registerLocalPersonFromCentral,
+  registrarPersonaLocalDesdeCentral,
   registerPerson,
   saveConfig,
-  syncAccount,
-  syncAccounts,
-  syncIncomingTransactions,
+  sincronizarCuenta,
+  sincronizarCuentas,
+  sincronizarTransaccionesEntrantes,
   updateBankName,
 };

@@ -6,33 +6,33 @@
 // transaccional (BEGIN/COMMIT/ROLLBACK) y las validaciones viven en el service.
 
 /** id del tipo "transferencia". */
-function selectTransferTypeId(executor) {
+function seleccionarIdTipoTransferencia(executor) {
   return executor.query(
     "SELECT id FROM tipos_transaccion WHERE lower(nombre) = 'transferencia' LIMIT 1"
   );
 }
 
 /** id del tipo "deposito". */
-function selectDepositTypeId(executor) {
+function seleccionarIdTipoDeposito(executor) {
   return executor.query(
     "SELECT id FROM tipos_transaccion WHERE lower(nombre) = 'deposito' LIMIT 1"
   );
 }
 
 /** Cuenta local + titular por id, con FOR UPDATE (bloquea la fila). */
-function selectAccountByIdForUpdate(executor, accountId) {
+function seleccionarCuentaPorIdParaActualizar(executor, idCuenta) {
   return executor.query(
     `SELECT c.*, p.nombre, p.apellido
        FROM cuentas c
        JOIN personas p ON p.id = c.persona_id
        WHERE c.id = $1
        FOR UPDATE`,
-    [accountId]
+    [idCuenta]
   );
 }
 
 /** Cuenta local + titular por CBU, con FOR UPDATE (bloquea la fila). */
-function selectAccountByCbuForUpdate(executor, cbu) {
+function seleccionarCuentaPorCbuParaActualizar(executor, cbu) {
   return executor.query(
     `SELECT c.*, p.nombre, p.apellido
        FROM cuentas c
@@ -44,25 +44,25 @@ function selectAccountByCbuForUpdate(executor, cbu) {
 }
 
 /** Límite de transferencia del tipo de cuenta. */
-function selectAccountTransferLimit(executor, tipoCuentaId) {
+function seleccionarLimiteDeTransferencia(executor, tipoCuentaId) {
   return executor.query(
     'SELECT limite_transferencia FROM tipos_cuenta WHERE id = $1',
     [tipoCuentaId]
   );
 }
 
-/** Resta `amount` al saldo de la cuenta `accountId`. */
-function debitAccount(executor, amount, accountId) {
-  return executor.query('UPDATE cuentas SET saldo = saldo - $1 WHERE id = $2', [amount, accountId]);
+/** Resta `amount` al saldo de la cuenta `idCuenta`. */
+function debitarDeCuenta(executor, amount, idCuenta) {
+  return executor.query('UPDATE cuentas SET saldo = saldo - $1 WHERE id = $2', [amount, idCuenta]);
 }
 
-/** Suma `amount` al saldo de la cuenta `accountId`. */
-function creditAccount(executor, amount, accountId) {
-  return executor.query('UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2', [amount, accountId]);
+/** Suma `amount` al saldo de la cuenta `idCuenta`. */
+function acreditarEnCuenta(executor, amount, idCuenta) {
+  return executor.query('UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2', [amount, idCuenta]);
 }
 
 /** Inserta una transacción de transferencia (local o interbancaria). */
-function insertTransferTransaction(executor, values) {
+function insertarTransaccionDeTransferencia(executor, values) {
   return executor.query(
     `INSERT INTO transacciones (
         tipo_transaccion_id,
@@ -82,7 +82,7 @@ function insertTransferTransaction(executor, values) {
 }
 
 /** Inserta una transacción de depósito en efectivo (sin origen). */
-function insertDepositTransaction(executor, { transferTypeId, destinationId, amount, descripcion, destinationCbu }) {
+function insertarTransaccionDeDeposito(executor, { idTipoDeposito, destinationId, amount, descripcion, destinationCbu }) {
   return executor.query(
     `INSERT INTO transacciones (
           tipo_transaccion_id,
@@ -96,7 +96,7 @@ function insertDepositTransaction(executor, { transferTypeId, destinationId, amo
           cbu_destino
         ) VALUES ($1, NULL, $2, $3, $4, 'completada', 'deposito_efectivo', NULL, $5)
         RETURNING *`,
-    [transferTypeId, destinationId, amount, descripcion, destinationCbu]
+    [idTipoDeposito, destinationId, amount, descripcion, destinationCbu]
   );
 }
 
@@ -106,7 +106,7 @@ function selectAllTransactions(executor) {
 }
 
 /** Transacciones donde la persona participa como origen o destino. */
-function selectTransactionsForPersona(executor, personaId) {
+function seleccionarTransaccionesDePersona(executor, personaId) {
   return executor.query(
     `SELECT t.*
        FROM transacciones t
@@ -125,7 +125,7 @@ function selectTransactionById(executor, id) {
 }
 
 /** Una transacción por id, solo si la persona participa. */
-function selectTransactionByIdForPersona(executor, id, personaId) {
+function seleccionarTransaccionDePersonaPorId(executor, id, personaId) {
   return executor.query(
     `SELECT t.*
            FROM transacciones t
@@ -157,19 +157,19 @@ function selectActiveCbusForPersona(executor, personaId) {
 }
 
 module.exports = {
-  selectTransferTypeId,
-  selectDepositTypeId,
-  selectAccountByIdForUpdate,
-  selectAccountByCbuForUpdate,
-  selectAccountTransferLimit,
-  debitAccount,
-  creditAccount,
-  insertTransferTransaction,
-  insertDepositTransaction,
+  seleccionarIdTipoTransferencia,
+  seleccionarIdTipoDeposito,
+  seleccionarCuentaPorIdParaActualizar,
+  seleccionarCuentaPorCbuParaActualizar,
+  seleccionarLimiteDeTransferencia,
+  debitarDeCuenta,
+  acreditarEnCuenta,
+  insertarTransaccionDeTransferencia,
+  insertarTransaccionDeDeposito,
   selectAllTransactions,
-  selectTransactionsForPersona,
+  seleccionarTransaccionesDePersona,
   selectTransactionById,
-  selectTransactionByIdForPersona,
+  seleccionarTransaccionDePersonaPorId,
   selectDestinatario,
   selectActiveCbusForPersona,
 };

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { toPublicCuenta } from '../../src/dtos/cuenta.dto.js';
+import { aCuentaPublica } from '../../src/dtos/cuenta.dto.js';
 
-describe('toPublicCuenta', () => {
+describe('aCuentaPublica', () => {
   it('devuelve null si la fila es null', () => {
-    expect(toPublicCuenta(null)).toBeNull();
+    expect(aCuentaPublica(null)).toBeNull();
   });
 
   it('mapea campos base sin metadata de JOIN', () => {
@@ -21,8 +21,10 @@ describe('toPublicCuenta', () => {
       updated_at: '2026-01-02T00:00:00Z',
     };
 
-    const result = toPublicCuenta(row);
-    expect(result).toEqual(row);
+    const result = aCuentaPublica(row);
+    // El importe sale como number: la columna NUMERIC llega como string
+    // desde Postgres y el DTO la convierte en el borde del API.
+    expect(result).toEqual({ ...row, saldo: Number(row.saldo) });
     expect(result).not.toHaveProperty('tipo_cuenta_nombre');
   });
 
@@ -41,7 +43,7 @@ describe('toPublicCuenta', () => {
       tipo_cuenta_descripcion: 'Caja de ahorro en pesos',
     };
 
-    const result = toPublicCuenta(row);
+    const result = aCuentaPublica(row);
     expect(result.tipo_cuenta_nombre).toBe('Caja de Ahorro');
     expect(result.tipo_cuenta_descripcion).toBe('Caja de ahorro en pesos');
   });
@@ -58,6 +60,6 @@ describe('toPublicCuenta', () => {
       banco_central_registrada: false,
     };
 
-    expect(toPublicCuenta(row).alias).toBeNull();
+    expect(aCuentaPublica(row).alias).toBeNull();
   });
 });

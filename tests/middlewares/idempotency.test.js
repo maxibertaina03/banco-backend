@@ -33,14 +33,14 @@ function buildPool({ insertResult, existingResult } = {}) {
   return pool;
 }
 
-function buildReq(headers = {}, body = {}, currentUser = { id: "u-1" }) {
+function buildReq(headers = {}, body = {}, usuarioActual = { id: "u-1" }) {
   return {
     method: "POST",
     path: "/transacciones",
     baseUrl: "/api",
     headers,
     body,
-    currentUser,
+    usuarioActual,
   };
 }
 

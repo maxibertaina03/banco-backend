@@ -1,6 +1,6 @@
 // Pivote persona↔rol. Solo se expone para gestión interna.
 
-function toPublicPersonaRol(row) {
+function aPersonaRolPublico(row) {
   if (!row) return null;
   return {
     id: row.id,
@@ -10,4 +10,4 @@ function toPublicPersonaRol(row) {
   };
 }
 
-module.exports = { toPublicPersonaRol };
+module.exports = { aPersonaRolPublico };

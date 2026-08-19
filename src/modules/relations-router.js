@@ -5,15 +5,15 @@ const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
 const HttpError = require('../utils/http-error');
 const { uuidLike } = require('../utils/schemas');
-const { hasAnyRole, isInternalUser } = require('../utils/access-control');
+const { tieneAlgunRol, esUsuarioInterno } = require('../utils/access-control');
 const centralBankService = require('./central-bank-service');
 const {
-  toPublicPersona,
-  toPublicUsuario,
-  toPublicCuenta,
-  toPublicTransaccion,
-  toPublicDestinatario,
-  toPublicRol,
+  aPersonaPublica,
+  aUsuarioPublico,
+  aCuentaPublica,
+  aTransaccionPublica,
+  aDestinatarioPublico,
+  aRolPublico,
 } = require('../dtos');
 
 const router = express.Router();
@@ -23,7 +23,7 @@ const paramsSchema = z.object({
   id: uuidLike,
 });
 
-function generateAccountNumber(personaId) {
+function generarNumeroDeCuenta(personaId) {
   const personaDigits = String(personaId || '').replace(/\D+/g, '').slice(-6).padStart(6, '0');
   const timestampDigits = Date.now().toString().slice(-6);
   return `${personaDigits}${timestampDigits}`.slice(0, 12);
@@ -36,7 +36,7 @@ function generateCbu(personaId) {
 }
 
 function assertCanAccessPersona(req, personaId) {
-  if (isInternalUser(req.currentUser) || req.currentUser.persona_id === personaId) {
+  if (esUsuarioInterno(req.usuarioActual) || req.usuarioActual.persona_id === personaId) {
     return;
   }
 
@@ -44,7 +44,7 @@ function assertCanAccessPersona(req, personaId) {
 }
 
 async function assertCanAccessCuenta(req, cuentaId) {
-  if (isInternalUser(req.currentUser)) {
+  if (esUsuarioInterno(req.usuarioActual)) {
     return;
   }
 
@@ -54,13 +54,13 @@ async function assertCanAccessCuenta(req, cuentaId) {
     throw new HttpError(404, `No existe la cuenta con id ${cuentaId}.`);
   }
 
-  if (result.rows[0].persona_id !== req.currentUser.persona_id) {
+  if (result.rows[0].persona_id !== req.usuarioActual.persona_id) {
     throw new HttpError(403, 'No tienes permisos para acceder a esa cuenta.');
   }
 }
 
 async function assertCanAccessUsuarioAuditoria(req, userId) {
-  if (hasAnyRole(req.currentUser, ['admin', 'auditor'])) {
+  if (tieneAlgunRol(req.usuarioActual, ['admin', 'auditor'])) {
     return;
   }
 
@@ -70,7 +70,7 @@ async function assertCanAccessUsuarioAuditoria(req, userId) {
     throw new HttpError(404, `No existe el usuario con id ${userId}.`);
   }
 
-  if (result.rows[0].persona_id !== req.currentUser.persona_id) {
+  if (result.rows[0].persona_id !== req.usuarioActual.persona_id) {
     throw new HttpError(403, 'No tienes permisos para consultar la auditoría de otro usuario.');
   }
 }
@@ -120,11 +120,11 @@ router.get(
     ]);
 
     res.json({
-      persona: toPublicPersona(personaResult.rows[0]),
-      usuario: toPublicUsuario(usuario.rows[0]),
-      cuentas: cuentas.rows.map(toPublicCuenta),
-      destinatarios: destinatarios.rows.map(toPublicDestinatario),
-      roles: roles.rows.map(toPublicRol),
+      persona: aPersonaPublica(personaResult.rows[0]),
+      usuario: aUsuarioPublico(usuario.rows[0]),
+      cuentas: cuentas.rows.map(aCuentaPublica),
+      destinatarios: destinatarios.rows.map(aDestinatarioPublico),
+      roles: roles.rows.map(aRolPublico),
     });
   })
 );
@@ -144,7 +144,7 @@ router.get(
       [req.params.id]
     );
 
-    res.json(result.rows.map(toPublicCuenta));
+    res.json(result.rows.map(aCuentaPublica));
   })
 );
 
@@ -165,24 +165,24 @@ router.post(
         throw new HttpError(404, `No existe la persona con id ${req.params.id}.`);
       }
 
-      const existingAccounts = await client.query(
+      const cuentasExistentes = await client.query(
         'SELECT id FROM cuentas WHERE persona_id = $1 LIMIT 1',
         [req.params.id]
       );
 
-      if (existingAccounts.rowCount > 0) {
+      if (cuentasExistentes.rowCount > 0) {
         throw new HttpError(
           409,
           'La persona ya tiene cuentas creadas. La apertura automática solo aplica a usuarios sin cuentas.'
         );
       }
 
-      const accountTypeResult = await client.query(
+      const resultadoTipoDeCuenta = await client.query(
         'SELECT id FROM tipos_cuenta WHERE nombre = $1 ORDER BY id ASC LIMIT 1',
         [BASIC_SAVINGS_NAME]
       );
 
-      if (accountTypeResult.rowCount === 0) {
+      if (resultadoTipoDeCuenta.rowCount === 0) {
         throw new HttpError(500, 'No se encontró el tipo de cuenta Caja de Ahorro.');
       }
 
@@ -191,7 +191,7 @@ router.post(
 
       while (!created && attempts < 5) {
         attempts += 1;
-        const numeroCuenta = generateAccountNumber(req.params.id);
+        const numeroCuenta = generarNumeroDeCuenta(req.params.id);
         const cbu = generateCbu(req.params.id);
 
         try {
@@ -206,7 +206,7 @@ router.post(
               banco_central_registrada
             ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *`,
-            [req.params.id, accountTypeResult.rows[0].id, numeroCuenta, cbu, 0, true, false]
+            [req.params.id, resultadoTipoDeCuenta.rows[0].id, numeroCuenta, cbu, 0, true, false]
           );
 
           created = insertResult.rows[0];
@@ -234,7 +234,7 @@ router.post(
 
       await client.query('COMMIT');
 
-      // Best-effort: register with Brocoly immediately if persona has complete profile data.
+      // Best-effort: register with Brocoly immediately if persona has complete perfil data.
       // On success, the CBU stored locally gets replaced with the real Brocoly-assigned CBU.
       let centralBank = null;
       const personaFull = await pool.query(
@@ -245,7 +245,7 @@ router.post(
 
       if (p?.nombre && p?.apellido && p?.dni) {
         try {
-          const centralResult = await centralBankService.registerLocalPersonFromCentral(
+          const centralResult = await centralBankService.registrarPersonaLocalDesdeCentral(
             {
               nombre: p.nombre,
               apellido: p.apellido,
@@ -254,7 +254,7 @@ router.post(
               telefono: p.telefono,
               environment: 'test',
             },
-            { usuarioId: req.currentUser?.id || null, ipAddress: req.ip || null }
+            { usuarioId: req.usuarioActual?.id || null, ipAddress: req.ip || null }
           );
           centralBank = {
             status: centralResult.status,
@@ -266,7 +266,7 @@ router.post(
         }
       }
 
-      res.status(201).json({ ...toPublicCuenta(enriched.rows[0]), centralBank });
+      res.status(201).json({ ...aCuentaPublica(enriched.rows[0]), centralBank });
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -291,7 +291,7 @@ router.get(
       [req.params.id]
     );
 
-    res.json(result.rows.map(toPublicRol));
+    res.json(result.rows.map(aRolPublico));
   })
 );
 
@@ -306,7 +306,7 @@ router.get(
       [req.params.id]
     );
 
-    res.json(result.rows.map(toPublicDestinatario));
+    res.json(result.rows.map(aDestinatarioPublico));
   })
 );
 
@@ -331,7 +331,7 @@ router.get(
       [req.params.id]
     );
 
-    res.json(result.rows.map(toPublicTransaccion));
+    res.json(result.rows.map(aTransaccionPublica));
   })
 );
 
@@ -355,7 +355,7 @@ router.get(
       [req.params.id]
     );
 
-    res.json(result.rows.map(toPublicTransaccion));
+    res.json(result.rows.map(aTransaccionPublica));
   })
 );
 

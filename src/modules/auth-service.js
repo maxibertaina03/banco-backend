@@ -34,7 +34,7 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
   async function ensureClienteRole(client, personaId) {
     const roleResult = await q.selectRoleByName(client, 'cliente');
     if (roleResult.rowCount === 0) return;
-    await q.insertPersonaRole(client, personaId, roleResult.rows[0].id);
+    await q.insertarRolDePersona(client, personaId, roleResult.rows[0].id);
   }
 
   async function fetchClerkUser(clerkId) {
@@ -52,19 +52,19 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
    * Obtiene o crea un usuario en la BD basado en clerk_id. Si no existe
    * localmente, lo aprovisiona desde Clerk.
    */
-  async function getOrCreateUser(clerkId) {
+  async function obtenerOCrearUsuario(clerkId) {
     const result = await q.selectActiveUserWithPersona(pool, clerkId);
     if (result.rowCount > 0) {
       return result.rows[0];
     }
-    return provisionUserFromClerk(clerkId);
+    return aprovisionarUsuarioDesdeClerk(clerkId);
   }
 
   /**
    * Crea un nuevo usuario enlazando una persona existente con Clerk.
    * Se da por supuesto que la persona ya existe.
    */
-  async function createUserWithClerk(personaId, clerkId) {
+  async function crearUsuarioConClerk(personaId, clerkId) {
     const personaResult = await q.selectPersonaById(pool, personaId);
     if (personaResult.rowCount === 0) {
       throw new HttpError(404, `No existe la persona con id ${personaId}.`);
@@ -72,8 +72,8 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
 
     const existingByPersona = await q.selectUsuarioByPersonaId(pool, personaId);
 
-    const existingUser = await q.selectUsuarioByClerkId(pool, clerkId);
-    if (existingUser.rowCount > 0 && existingUser.rows[0].persona_id !== personaId) {
+    const usuarioExistente = await q.selectUsuarioByClerkId(pool, clerkId);
+    if (usuarioExistente.rowCount > 0 && usuarioExistente.rows[0].persona_id !== personaId) {
       throw new HttpError(400, 'Ya existe un usuario con ese clerk_id.');
     }
 
@@ -90,12 +90,12 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
    * Obtiene el perfil completo del usuario autenticado. Si no se encuentra,
    * fuerza aprovisionamiento y reintenta una sola vez.
    */
-  async function getUserProfile(clerkId) {
-    const result = await q.selectUserProfile(pool, clerkId);
+  async function obtenerPerfilDeUsuario(clerkId) {
+    const result = await q.seleccionarPerfilDeUsuario(pool, clerkId);
 
     if (result.rowCount === 0) {
-      await getOrCreateUser(clerkId);
-      return getUserProfile(clerkId);
+      await obtenerOCrearUsuario(clerkId);
+      return obtenerPerfilDeUsuario(clerkId);
     }
 
     const user = result.rows[0];
@@ -105,7 +105,7 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
   }
 
   /** Desactiva un usuario (logout "suave"). */
-  async function deactivateUser(clerkId) {
+  async function desactivarUsuario(clerkId) {
     const result = await q.deactivateUserReturning(pool, clerkId);
     if (result.rowCount === 0) {
       throw new HttpError(404, 'Usuario no encontrado.');
@@ -118,7 +118,7 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
    * reactiva y actualiza solo los campos que el usuario aún no completó. Si
    * es nuevo, crea persona (o usa la existente si matchea el email) y user.
    */
-  async function syncClerkUserFromWebhook(clerkUser) {
+  async function sincronizarUsuarioDeClerkPorWebhook(clerkUser) {
     const clerkId = clerkUser?.id;
     if (!clerkId) {
       throw new HttpError(400, 'El evento de Clerk no incluye un user id válido.');
@@ -133,12 +133,12 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
     try {
       await client.query('BEGIN');
 
-      const existingUser = await q.selectUsuarioIdAndPersona(client, clerkId);
+      const usuarioExistente = await q.selectUsuarioIdAndPersona(client, clerkId);
 
-      if (existingUser.rowCount > 0) {
-        const personaId = existingUser.rows[0].persona_id;
+      if (usuarioExistente.rowCount > 0) {
+        const personaId = usuarioExistente.rows[0].persona_id;
 
-        await q.reactivateUsuarioById(client, existingUser.rows[0].id);
+        await q.reactivateUsuarioById(client, usuarioExistente.rows[0].id);
         await q.mergePersonaIfIncomplete(client, { firstName, lastName, email, phone, personaId });
 
         await client.query('COMMIT');
@@ -169,12 +169,12 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
     }
   }
 
-  async function deactivateClerkUserFromWebhook(clerkId) {
+  async function desactivarUsuarioDeClerkPorWebhook(clerkId) {
     if (!clerkId) return;
-    await q.deactivateUser(pool, clerkId);
+    await q.desactivarUsuario(pool, clerkId);
   }
 
-  async function provisionUserFromClerk(clerkId) {
+  async function aprovisionarUsuarioDesdeClerk(clerkId) {
     const clerkUser = await fetchClerkUser(clerkId);
     const email = getPrimaryEmail(clerkUser);
 
@@ -230,7 +230,7 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
   // Actualización parcial del perfil. Solo toca los campos enviados; el
   // resto queda intacto. NO modifica perfil_completo, dni ni fecha_nacimiento
   // (datos sensibles que deben pasar por flujo de verificación específico).
-  async function updateUserProfile(clerkId, payload) {
+  async function actualizarPerfilDeUsuario(clerkId, payload) {
     const allowed = ['nombre', 'apellido', 'telefono', 'email'];
     const updates = [];
     const values = [];
@@ -257,8 +257,8 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
     return result.rows[0];
   }
 
-  async function completeUserProfile(clerkId, payload) {
-    const result = await q.completeProfile(pool, payload, clerkId);
+  async function completarPerfilDeUsuario(clerkId, payload) {
+    const result = await q.completarPerfil(pool, payload, clerkId);
     if (result.rowCount === 0) {
       throw new HttpError(404, 'Usuario no encontrado o inactivo.');
     }
@@ -266,14 +266,14 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
   }
 
   return {
-    getOrCreateUser,
-    createUserWithClerk,
-    getUserProfile,
-    completeUserProfile,
-    updateUserProfile,
-    deactivateUser,
-    syncClerkUserFromWebhook,
-    deactivateClerkUserFromWebhook,
+    obtenerOCrearUsuario,
+    crearUsuarioConClerk,
+    obtenerPerfilDeUsuario,
+    completarPerfilDeUsuario,
+    actualizarPerfilDeUsuario,
+    desactivarUsuario,
+    sincronizarUsuarioDeClerkPorWebhook,
+    desactivarUsuarioDeClerkPorWebhook,
   };
 }
 

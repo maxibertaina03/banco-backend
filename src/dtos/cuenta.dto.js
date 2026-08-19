@@ -2,7 +2,9 @@
 // representación pública. Soporta campos opcionales provenientes de JOINs
 // sin requerirlos siempre.
 
-function toPublicCuenta(row) {
+const { aNumeroDeApi } = require('../utils/dinero');
+
+function aCuentaPublica(row) {
   if (!row) return null;
   const result = {
     id: row.id,
@@ -11,7 +13,7 @@ function toPublicCuenta(row) {
     numero_cuenta: row.numero_cuenta,
     cbu: row.cbu,
     alias: row.alias ?? null,
-    saldo: row.saldo,
+    saldo: aNumeroDeApi(row.saldo),
     activa: row.activa,
     banco_central_registrada: row.banco_central_registrada,
     created_at: row.created_at,
@@ -26,4 +28,4 @@ function toPublicCuenta(row) {
   return result;
 }
 
-module.exports = { toPublicCuenta };
+module.exports = { aCuentaPublica };

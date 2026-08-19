@@ -1,16 +1,16 @@
 const INTERNAL_ROLES = new Set(['admin', 'operador', 'auditor', 'tesoreria']);
 
-function hasAnyRole(user, roles) {
+function tieneAlgunRol(user, roles) {
   const userRoles = user?.roles || [];
   return roles.some((role) => userRoles.includes(role));
 }
 
-function isInternalUser(user) {
-  return hasAnyRole(user, [...INTERNAL_ROLES]);
+function esUsuarioInterno(user) {
+  return tieneAlgunRol(user, [...INTERNAL_ROLES]);
 }
 
 module.exports = {
-  hasAnyRole,
-  isInternalUser,
+  tieneAlgunRol,
+  esUsuarioInterno,
   INTERNAL_ROLES,
 };

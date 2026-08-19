@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { toPublicTransaccion } from '../../src/dtos/transaccion.dto.js';
+import { aTransaccionPublica } from '../../src/dtos/transaccion.dto.js';
 
-describe('toPublicTransaccion', () => {
+describe('aTransaccionPublica', () => {
   it('devuelve null si la fila es null', () => {
-    expect(toPublicTransaccion(null)).toBeNull();
+    expect(aTransaccionPublica(null)).toBeNull();
   });
 
   it('mapea los campos base sin JOIN', () => {
@@ -23,7 +23,7 @@ describe('toPublicTransaccion', () => {
       updated_at: '2026-01-01T00:00:00Z',
     };
 
-    expect(toPublicTransaccion(row)).toEqual(row);
+    expect(aTransaccionPublica(row)).toEqual({ ...row, monto: Number(row.monto) });
   });
 
   it('incluye campos de JOIN cuando están presentes', () => {
@@ -39,7 +39,7 @@ describe('toPublicTransaccion', () => {
       cuenta_destino_numero: '222222',
     };
 
-    const result = toPublicTransaccion(row);
+    const result = aTransaccionPublica(row);
     expect(result.tipo_transaccion_nombre).toBe('Transferencia');
     expect(result.cuenta_origen_numero).toBe('111111');
     expect(result.cuenta_destino_numero).toBe('222222');
@@ -55,7 +55,7 @@ describe('toPublicTransaccion', () => {
       estado: 'pendiente',
     };
 
-    const result = toPublicTransaccion(row);
+    const result = aTransaccionPublica(row);
     expect(result.cbu_origen).toBeNull();
     expect(result.cbu_destino).toBeNull();
     expect(result.descripcion).toBeNull();

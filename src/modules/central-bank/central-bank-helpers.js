@@ -9,7 +9,7 @@ const MIN_ALIAS_LENGTH = 6;
 const MAX_ALIAS_LENGTH = 20;
 
 /** Número de cuenta local de 12 dígitos derivado de persona + timestamp. */
-function generateLocalAccountNumber(personaId) {
+function generarNumeroDeCuentaLocal(personaId) {
   const personaDigits = String(personaId || '').replace(/\D+/g, '').slice(-6).padStart(6, '0');
   const timestampDigits = Date.now().toString().slice(-6);
   return `${personaDigits}${timestampDigits}`.slice(0, 12);
@@ -83,17 +83,17 @@ function createAliasVariant(parts) {
 }
 
 /** Lista ordenada y sin repetidos de alias candidatos para una cuenta. */
-function buildAliasCandidates(account, bankName) {
-  const suffix = account.numero_cuenta?.slice(-4) || account.cbu?.slice(-4) || '0001';
+function buildAliasCandidates(cuenta, bankName) {
+  const suffix = cuenta.numero_cuenta?.slice(-4) || cuenta.cbu?.slice(-4) || '0001';
   const bankSlug = normalizeAliasValue(bankName || 'orbital') || 'orbital';
 
   const candidates = [
-    normalizeAliasValue(account.alias),
-    createAliasVariant([account.nombre, account.apellido]),
-    createAliasVariant([account.nombre, suffix]),
-    createAliasVariant([account.nombre, account.apellido, suffix]),
-    createAliasVariant([account.nombre, bankSlug]),
-    createAliasVariant([account.nombre, suffix, bankSlug]),
+    normalizeAliasValue(cuenta.alias),
+    createAliasVariant([cuenta.nombre, cuenta.apellido]),
+    createAliasVariant([cuenta.nombre, suffix]),
+    createAliasVariant([cuenta.nombre, cuenta.apellido, suffix]),
+    createAliasVariant([cuenta.nombre, bankSlug]),
+    createAliasVariant([cuenta.nombre, suffix, bankSlug]),
   ].filter(Boolean);
 
   return Array.from(new Set(candidates));
@@ -129,7 +129,7 @@ function extractCentralCbu(payload) {
 }
 
 /** Primer id de transacción encontrado (varias convenciones de nombre). */
-function extractCentralTransactionId(payload) {
+function extraerIdTransaccionCentral(payload) {
   if (!payload || typeof payload !== 'object') {
     return null;
   }
@@ -143,8 +143,11 @@ function extractCentralTransactionId(payload) {
       continue;
     }
 
-    // API docs: POST /transactions returns "transaccionId" (Spanish spelling)
-    // GET /transactions returns "_id"
+    // OJO: estas son claves del JSON que devuelve el Banco Central, no
+    // identificadores nuestros. NO se traducen aunque el resto del código esté
+    // en español: son grafías que puede tener SU respuesta.
+    // Según su OpenAPI: POST /transactions devuelve "transaccionId",
+    // GET /transactions devuelve "_id". El resto son variantes defensivas.
     const candidates = [
       current.transaccionId,
       current.transactionId,
@@ -201,13 +204,13 @@ function extractCentralAlias(payload) {
 }
 
 /** Razones por las que una cuenta NO está lista para sincronizar con Brocoly. */
-function toSyncIssues(account) {
+function toSyncIssues(cuenta) {
   const issues = [];
-  const sanitizedNombre = sanitizeCentralText(account.nombre);
-  const sanitizedApellido = sanitizeCentralText(account.apellido);
-  const sanitizedDni = sanitizeDni(account.dni);
+  const sanitizedNombre = sanitizeCentralText(cuenta.nombre);
+  const sanitizedApellido = sanitizeCentralText(cuenta.apellido);
+  const sanitizedDni = sanitizeDni(cuenta.dni);
 
-  if (!account.activa) {
+  if (!cuenta.activa) {
     issues.push('La cuenta está inactiva.');
   }
 
@@ -227,7 +230,7 @@ function toSyncIssues(account) {
 module.exports = {
   MIN_ALIAS_LENGTH,
   MAX_ALIAS_LENGTH,
-  generateLocalAccountNumber,
+  generarNumeroDeCuentaLocal,
   sanitizeCentralText,
   sanitizeDni,
   cleanAliasText,
@@ -235,7 +238,7 @@ module.exports = {
   createAliasVariant,
   buildAliasCandidates,
   extractCentralCbu,
-  extractCentralTransactionId,
+  extraerIdTransaccionCentral,
   extractCentralAlias,
   toSyncIssues,
 };

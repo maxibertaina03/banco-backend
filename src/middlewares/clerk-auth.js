@@ -20,7 +20,7 @@ async function clerkAuth(req, res, next) {
 
     req.auth = {
       ...decoded,
-      userId: extractClerkUserId(decoded),
+      userId: extraerIdUsuarioDeClerk(decoded),
     };
     next();
   } catch (error) {
@@ -41,12 +41,12 @@ function extractToken(req) {
   return parts[1];
 }
 
-function extractClerkUserId(auth) {
+function extraerIdUsuarioDeClerk(auth) {
   return auth?.sub || auth?.userId || auth?.clerk_id || null;
 }
 
 module.exports = {
   clerkAuth,
   extractToken,
-  extractClerkUserId,
+  extraerIdUsuarioDeClerk,
 };

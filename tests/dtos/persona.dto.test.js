@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { toPublicPersona, toPersonaOption } from '../../src/dtos/persona.dto.js';
+import { aPersonaPublica, aOpcionDePersona } from '../../src/dtos/persona.dto.js';
 
-describe('toPublicPersona', () => {
+describe('aPersonaPublica', () => {
   it('devuelve null si la fila es null o undefined', () => {
-    expect(toPublicPersona(null)).toBeNull();
-    expect(toPublicPersona(undefined)).toBeNull();
+    expect(aPersonaPublica(null)).toBeNull();
+    expect(aPersonaPublica(undefined)).toBeNull();
   });
 
   it('mapea los campos públicos esperados', () => {
@@ -21,7 +21,7 @@ describe('toPublicPersona', () => {
       updated_at: '2026-01-02T00:00:00Z',
     };
 
-    expect(toPublicPersona(row)).toEqual(row);
+    expect(aPersonaPublica(row)).toEqual(row);
   });
 
   it('normaliza campos opcionales ausentes a null', () => {
@@ -32,7 +32,7 @@ describe('toPublicPersona', () => {
       email: 'juan@example.com',
     };
 
-    const result = toPublicPersona(row);
+    const result = aPersonaPublica(row);
     expect(result.dni).toBeNull();
     expect(result.telefono).toBeNull();
     expect(result.fecha_nacimiento).toBeNull();
@@ -49,15 +49,15 @@ describe('toPublicPersona', () => {
       password_hash: 'hash',
     };
 
-    const result = toPublicPersona(row);
+    const result = aPersonaPublica(row);
     expect(result).not.toHaveProperty('campo_interno_secreto');
     expect(result).not.toHaveProperty('password_hash');
   });
 });
 
-describe('toPersonaOption', () => {
+describe('aOpcionDePersona', () => {
   it('devuelve null si la fila es null', () => {
-    expect(toPersonaOption(null)).toBeNull();
+    expect(aOpcionDePersona(null)).toBeNull();
   });
 
   it('expone solo los campos mínimos para listados', () => {
@@ -72,7 +72,7 @@ describe('toPersonaOption', () => {
       perfil_completo: true,
     };
 
-    const result = toPersonaOption(row);
+    const result = aOpcionDePersona(row);
     expect(result).toEqual({
       id: 'p1',
       nombre: 'Juan',

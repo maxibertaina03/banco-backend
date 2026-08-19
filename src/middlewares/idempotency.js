@@ -61,7 +61,7 @@ function createIdempotency(pool, options = {}) {
       return next(new HttpError(400, 'Idempotency-Key debe ser un UUID v4.'));
     }
 
-    const userId = req.currentUser?.id || null;
+    const userId = req.usuarioActual?.id || null;
     const endpoint = endpointId(req);
     const requestHash = hashBody(req.body);
 

@@ -3,11 +3,11 @@ const { z } = require('zod');
 const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
 const { uuidLike } = require('../utils/schemas');
-const { toPublicTransaccion } = require('../dtos');
+const { aTransaccionPublica } = require('../dtos');
 const service = require('./transacciones-service');
 const pool = require('../db/pool');
 const createIdempotency = require('../middlewares/idempotency');
-const requireRoles = require('../middlewares/require-roles');
+const requerirRoles = require('../middlewares/require-roles');
 
 const router = express.Router();
 const idempotency = createIdempotency(pool);
@@ -18,7 +18,7 @@ const idParamsSchema = z.object({
   id: uuidLike,
 });
 
-const transferSchema = z
+const transferenciaSchema = z
   .object({
     tipo_transaccion_id: uuidLike,
     cuenta_origen_id: uuidLike,
@@ -33,14 +33,14 @@ const transferSchema = z
     message: 'Debes indicar una cuenta destino, un destinatario o un CBU de destino.',
   });
 
-const centralContractTransferSchema = z.object({
+const transferenciaPorContratoSchema = z.object({
   cbuOrigen: z.string().trim().length(22),
   cbuDestino: z.string().trim().length(22),
   importe: z.coerce.number().positive(),
   saldoOrigen: z.coerce.number().nonnegative(),
 });
 
-const resolveRecipientSchema = z
+const resolverDestinatarioSchema = z
   .object({
     alias: z.string().trim().min(1).optional(),
     cbu: z.string().trim().min(1).optional(),
@@ -62,19 +62,19 @@ const depositSchema = z.object({
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const rows = await service.listForUser(req.currentUser);
+    const rows = await service.listarParaUsuario(req.usuarioActual);
     res.json({
       count: rows.length,
-      data: rows.map(toPublicTransaccion),
+      data: rows.map(aTransaccionPublica),
     });
   })
 );
 
 router.get(
   '/destinatario/resolver',
-  validate(resolveRecipientSchema, 'query'),
+  validate(resolverDestinatarioSchema, 'query'),
   asyncHandler(async (req, res) => {
-    const response = await service.resolveRecipient({
+    const response = await service.resolverDestinatario({
       alias: req.query.alias,
       cbu: req.query.cbu,
     });
@@ -86,24 +86,24 @@ router.get(
   '/:id',
   validate(idParamsSchema, 'params'),
   asyncHandler(async (req, res) => {
-    const row = await service.getByIdForUser(req.params.id, req.currentUser);
-    res.json(toPublicTransaccion(row));
+    const row = await service.obtenerPorIdParaUsuario(req.params.id, req.usuarioActual);
+    res.json(aTransaccionPublica(row));
   })
 );
 
 router.post(
   '/',
   idempotency,
-  validate(centralContractTransferSchema),
+  validate(transferenciaPorContratoSchema),
   asyncHandler(async (req, res) => {
     const { cbuOrigen, cbuDestino, importe, saldoOrigen } = req.body;
 
-    const result = await service.createContractTransfer({
+    const result = await service.crearTransferenciaPorContrato({
       cbuOrigen,
       cbuDestino,
       importe,
       saldoOrigen,
-      currentUser: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
 
@@ -112,8 +112,8 @@ router.post(
         result.stateLabel === 'aprobada'
           ? 'Transacción aprobada'
           : 'Saldo insuficiente. La transacción queda registrada como rechazada.',
-      transactionId:
-        result.central?.transactionId || result.transaction.central_transaction_id || result.transaction.id,
+      idTransaccion:
+        result.central?.transaccionId || result.transaccion.central_transaction_id || result.transaccion.id,
       estado: result.stateLabel,
       cbuOrigen,
       cbuDestino: result.effectiveDestinationCbu,
@@ -127,16 +127,16 @@ router.post(
 router.post(
   '/operar',
   idempotency,
-  validate(transferSchema),
+  validate(transferenciaSchema),
   asyncHandler(async (req, res) => {
     const result = await service.operate({
       ...req.body,
-      currentUser: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
 
     res.status(result.statusCode).json({
-      ...toPublicTransaccion(result.transaction),
+      ...aTransaccionPublica(result.transaccion),
       central: result.central,
     });
   })
@@ -146,7 +146,7 @@ router.post(
 router.post(
   '/sync-incoming',
   asyncHandler(async (req, res) => {
-    const result = await service.syncIncomingForUser(req.currentUser);
+    const result = await service.syncIncomingForUser(req.usuarioActual);
     res.json(result);
   })
 );
@@ -157,19 +157,19 @@ router.post(
 // dobles acreditaciones si el operador reintenta.
 router.post(
   '/deposito',
-  requireRoles(['admin', 'operador', 'tesoreria']),
+  requerirRoles(['admin', 'operador', 'tesoreria']),
   idempotency,
   validate(depositSchema),
   asyncHandler(async (req, res) => {
-    const result = await service.createDeposit({
+    const result = await service.crearDeposito({
       ...req.body,
-      currentUser: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
 
     res.status(201).json({
       message: 'Depósito acreditado.',
-      ...toPublicTransaccion(result.transaction),
+      ...aTransaccionPublica(result.transaccion),
       destinationName: result.destinationName,
       destinationCbu: result.destinationCbu,
     });

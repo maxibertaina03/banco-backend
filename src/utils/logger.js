@@ -8,12 +8,12 @@ const env = require('../config/env');
 // Niveles:
 //   - error: lo que rompe el flujo (excepciones, fallos de BD)
 //   - warn:  algo inesperado pero recuperable (key reused, fallback)
-//   - info:  eventos de negocio significativos (transfer completada, login)
+//   - info:  eventos de negocio significativos (transferencia completada, login)
 //   - debug: detalle interno (queries SQL, payloads); silenciado en prod
 //
 // Uso:
 //   const logger = require('./utils/logger');
-//   logger.info({ usuarioId, monto }, 'transfer aprobada');
+//   logger.info({ usuarioId, monto }, 'transferencia aprobada');
 //
 // Dentro de un request HTTP, preferí `req.log` (pino-http inyecta un child
 // logger con `req.id`, `req.method`, `req.url` automáticamente).

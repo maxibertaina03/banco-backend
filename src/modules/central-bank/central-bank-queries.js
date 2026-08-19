@@ -23,7 +23,7 @@ const ACCOUNT_SYNC_COLUMNS = `
        tc.nombre AS tipo_cuenta_nombre`;
 
 /** Cuenta + persona + tipo (vista de sincronización) por id de cuenta. */
-function selectSyncAccountById(executor, accountId) {
+function seleccionarCuentaASincronizarPorId(executor, idCuenta) {
   return executor.query(
     `SELECT${ACCOUNT_SYNC_COLUMNS}
      FROM cuentas c
@@ -31,12 +31,12 @@ function selectSyncAccountById(executor, accountId) {
      JOIN tipos_cuenta tc ON tc.id = c.tipo_cuenta_id
      WHERE c.id = $1
      LIMIT 1`,
-    [accountId]
+    [idCuenta]
   );
 }
 
 /** Listado de cuentas para sincronizar (más recientes primero). */
-function selectSyncAccounts(executor, safeLimit) {
+function seleccionarCuentasASincronizar(executor, safeLimit) {
   return executor.query(
     `SELECT${ACCOUNT_SYNC_COLUMNS}
      FROM cuentas c
@@ -123,7 +123,7 @@ function selectClienteRoleId(executor) {
 }
 
 /** Asigna un rol a una persona (idempotente). */
-function insertPersonaRole(executor, personaId, rolId) {
+function insertarRolDePersona(executor, personaId, rolId) {
   return executor.query(
     `INSERT INTO personas_roles (persona_id, rol_id)
          VALUES ($1, $2)
@@ -133,7 +133,7 @@ function insertPersonaRole(executor, personaId, rolId) {
 }
 
 /** id del tipo de cuenta por nombre (el más antiguo si hay varios). */
-function selectAccountTypeByName(executor, nombre) {
+function seleccionarTipoDeCuentaPorNombre(executor, nombre) {
   return executor.query(
     `SELECT id
        FROM tipos_cuenta
@@ -145,7 +145,7 @@ function selectAccountTypeByName(executor, nombre) {
 }
 
 /** Dueño (id, persona_id) de la cuenta con cierto CBU. */
-function selectAccountOwnerByCbu(executor, cbu) {
+function seleccionarTitularDeCuentaPorCbu(executor, cbu) {
   return executor.query(
     `SELECT id, persona_id
        FROM cuentas
@@ -156,7 +156,7 @@ function selectAccountOwnerByCbu(executor, cbu) {
 }
 
 /** Cuenta completa por id. */
-function selectAccountById(executor, id) {
+function seleccionarCuentaPorId(executor, id) {
   return executor.query(
     `SELECT *
          FROM cuentas
@@ -167,7 +167,7 @@ function selectAccountById(executor, id) {
 }
 
 /** Primera cuenta (más antigua) de una persona. */
-function selectFirstAccountByPersona(executor, personaId) {
+function seleccionarPrimeraCuentaDePersona(executor, personaId) {
   return executor.query(
     `SELECT *
          FROM cuentas
@@ -179,7 +179,7 @@ function selectFirstAccountByPersona(executor, personaId) {
 }
 
 /** Vincula una cuenta existente al Banco Central (CBU + alias). */
-function linkAccountToCentral(executor, { cbu, alias, id }) {
+function vincularCuentaConCentral(executor, { cbu, alias, id }) {
   return executor.query(
     `UPDATE cuentas
            SET cbu = $1,
@@ -193,7 +193,7 @@ function linkAccountToCentral(executor, { cbu, alias, id }) {
 }
 
 /** Crea una cuenta local ya sincronizada con el Banco Central. */
-function insertAccountFromCentral(executor, { personaId, tipoCuentaId, numeroCuenta, cbu, alias }) {
+function insertarCuentaDesdeCentral(executor, { personaId, tipoCuentaId, numeroCuenta, cbu, alias }) {
   return executor.query(
     `INSERT INTO cuentas (
                  persona_id,
@@ -211,12 +211,12 @@ function insertAccountFromCentral(executor, { personaId, tipoCuentaId, numeroCue
 }
 
 /** Actualiza el alias local de una cuenta por CBU. */
-function updateAccountAlias(executor, alias, cbu) {
+function actualizarAliasDeCuenta(executor, alias, cbu) {
   return executor.query('UPDATE cuentas SET alias = $1 WHERE cbu = $2', [alias, cbu]);
 }
 
 /** Persiste el resultado de sincronizar una cuenta (CBU + alias asignado). */
-function updateAccountSyncResult(executor, { cbu, alias, accountId }) {
+function resultadoSincronizacionCuenta(executor, { cbu, alias, idCuenta }) {
   return executor.query(
     `UPDATE cuentas
      SET cbu = $1,
@@ -224,12 +224,12 @@ function updateAccountSyncResult(executor, { cbu, alias, accountId }) {
          banco_central_registrada = TRUE
      WHERE id = $3
      RETURNING *`,
-    [cbu, alias, accountId]
+    [cbu, alias, idCuenta]
   );
 }
 
 /** Cuentas activas que matcheen alguno de los CBUs dados. */
-function selectActiveAccountsByCbus(executor, cbus) {
+function seleccionarCuentasActivasPorCbus(executor, cbus) {
   return executor.query(
     'SELECT id, cbu FROM cuentas WHERE cbu = ANY($1::text[]) AND activa = TRUE',
     [cbus]
@@ -237,7 +237,7 @@ function selectActiveAccountsByCbus(executor, cbus) {
 }
 
 /** Todas las cuentas activas con CBU. */
-function selectAllActiveAccountsWithCbu(executor) {
+function seleccionarCuentasActivasConCbu(executor) {
   return executor.query('SELECT id, cbu FROM cuentas WHERE cbu IS NOT NULL AND activa = TRUE');
 }
 
@@ -250,19 +250,19 @@ function selectExistingIncomingTxIds(executor, candidateIds) {
 }
 
 /** id del tipo "transferencia". */
-function selectTransferTypeId(executor) {
+function seleccionarIdTipoTransferencia(executor) {
   return executor.query(
     "SELECT id FROM tipos_transaccion WHERE LOWER(nombre) = 'transferencia' LIMIT 1"
   );
 }
 
 /** Acredita `amount` al saldo de una cuenta. */
-function creditAccount(executor, amount, accountId) {
-  return executor.query('UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2', [amount, accountId]);
+function acreditarEnCuenta(executor, amount, idCuenta) {
+  return executor.query('UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2', [amount, idCuenta]);
 }
 
 /** Registra una transferencia entrante interbancaria acreditada. */
-function insertIncomingTransaction(executor, { typeId, destAccountId, importe, txId, cbuOrigen, cbuDestino, senderName }) {
+function insertarTransaccionEntrante(executor, { typeId, idCuentaDestino, importe, txId, cbuOrigen, cbuDestino, senderName }) {
   return executor.query(
     `INSERT INTO transacciones (
            tipo_transaccion_id,
@@ -275,7 +275,7 @@ function insertIncomingTransaction(executor, { typeId, destAccountId, importe, t
            cbu_destino,
            descripcion
          ) VALUES ($1, $2, $3, 'completada', $4, 'interbancaria_entrante', $5, $6, $7)`,
-    [typeId, destAccountId, importe, txId, cbuOrigen, cbuDestino, senderName]
+    [typeId, idCuentaDestino, importe, txId, cbuOrigen, cbuDestino, senderName]
   );
 }
 
@@ -294,28 +294,28 @@ function upsertBankRegistration(executor, { bankId, bankCode, name, environment 
 }
 
 module.exports = {
-  selectSyncAccountById,
-  selectSyncAccounts,
+  seleccionarCuentaASincronizarPorId,
+  seleccionarCuentasASincronizar,
   updateBankRegistryName,
   selectLatestRegistration,
   selectPersonaByDni,
   updatePersonaIdentity,
   insertPersonaFromCentral,
   selectClienteRoleId,
-  insertPersonaRole,
-  selectAccountTypeByName,
-  selectAccountOwnerByCbu,
-  selectAccountById,
-  selectFirstAccountByPersona,
-  linkAccountToCentral,
-  insertAccountFromCentral,
-  updateAccountAlias,
-  updateAccountSyncResult,
-  selectActiveAccountsByCbus,
-  selectAllActiveAccountsWithCbu,
+  insertarRolDePersona,
+  seleccionarTipoDeCuentaPorNombre,
+  seleccionarTitularDeCuentaPorCbu,
+  seleccionarCuentaPorId,
+  seleccionarPrimeraCuentaDePersona,
+  vincularCuentaConCentral,
+  insertarCuentaDesdeCentral,
+  actualizarAliasDeCuenta,
+  resultadoSincronizacionCuenta,
+  seleccionarCuentasActivasPorCbus,
+  seleccionarCuentasActivasConCbu,
   selectExistingIncomingTxIds,
-  selectTransferTypeId,
-  creditAccount,
-  insertIncomingTransaction,
+  seleccionarIdTipoTransferencia,
+  acreditarEnCuenta,
+  insertarTransaccionEntrante,
   upsertBankRegistration,
 };
