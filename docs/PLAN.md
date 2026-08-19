@@ -70,10 +70,43 @@ permite avanzar en paralelo sin bloquearse.
 - `docs/openapi-banco-orbital.yaml` con los endpoints del estándar interno
 - Nombres según el glosario; `monto` interno vs `importe` hacia el Central
 - Importes como `number`, consistente con los DTOs y con el Central
-- **Probar las seis rutas nuevas con `curl`** contra `x-environment: test`
-- **Probar las cuatro APIs públicas externas** (DolarAPI, ArgentinaDatos, BCRA, data912)
-- Llevar al grupo el tema de las monedas en `POST /transactions`
-- **Decidir el recorte de servicios propios** (ver "Pendiente de definición")
+- [x] **APIs públicas externas probadas** — ver resultados abajo
+- [ ] **Probar las seis rutas nuevas del Central** con `curl` contra
+      `x-environment: test`. Bloqueado: `CENTRAL_BANK_API_KEY` está vacío en
+      `.env`, la config vive en la tabla `banco_central_configuracion`
+- [ ] Llevar al grupo el tema de las monedas en `POST /transactions`
+
+#### Resultado de probar las APIs externas (18 ago 2026)
+
+| API | Estado | Hallazgo |
+|---|---|---|
+| DolarAPI `/v1/dolares` | ✅ 200, 0,47 s | 7 cotizaciones (oficial, blue, bolsa, ccl, mayorista, cripto, tarjeta). Campos `compra`/`venta`/`fechaActualizacion` |
+| ArgentinaDatos plazo fijo | ✅ 200 | 32 bancos, con `tasas[]` por plazo en días |
+| ArgentinaDatos préstamos | ✅ 200 | 25 entidades, con `tna`, `tea`, `cftTea` y `tasasPorPlazo` |
+| ArgentinaDatos UVA | ✅ 200 | 3.794 valores diarios, último 2082,26 |
+| data912 CEDEARs | ✅ 200 | El path del documento **es correcto**: 952 items |
+| BCRA Transparencia | ❌ 404 | **Descartada**, ver abajo |
+
+**Tres cosas que cambian el trabajo:**
+
+1. **La TNA viene como fracción decimal, no como porcentaje.** ArgentinaDatos
+   devuelve `tna: 0.19` para una tasa del 19 %. Nuestro `Dinero` y la fórmula
+   acordada trabajan en porcentaje. El adapter tiene que normalizar en un solo
+   lugar, o vamos a calcular cuotas 100 veces más chicas.
+2. **BCRA queda descartada.** El path del documento acordado
+   (`/estadisticas/v1.0/Transparencia`) devuelve 404, y los endpoints de
+   estadísticas dan `410 Gone`. Sólo responde `estadisticascambiarias`. No hace
+   falta: ArgentinaDatos ya cubre plazo fijo y préstamos personales, que era
+   para lo que íbamos a usar BCRA.
+3. **data912 no tiene los campos que esperaba el documento.** No devuelve
+   `ratio` ni `precioARS`, sino datos de mercado crudos: `symbol`, `px_bid`,
+   `px_ask`, `c` (último), `pct_change`. El precio hay que tomarlo de `c` o
+   `px_ask`, y el ratio del CEDEAR hay que conseguirlo aparte o fijarlo a mano
+   para los pocos tickers que usemos.
+
+**Un riesgo que se cierra:** la UVA viene con 2 decimales (2082,26), así que la
+escala de `Dinero` alcanza. Queda por revisar sólo el ratio de CEDEARs, que no
+es un importe monetario.
 
 ### Fase 2 — Cimientos *(Maxi, backend)*
 Bloquea todo lo demás.
@@ -97,8 +130,9 @@ Sistema francés con `Dinero`, plazos fijos base 365, CEDEARs.
 **Informar la deuda al Central** con `POST /central-deudores` al otorgar y al
 cambiar la situación: es lo que hace que la consulta de la fase 2 sirva para todos.
 
-### Fase 6 — Dominios simples
-Servicios, recargas, seguros, reservas.
+### Fase 6 — Proveedores y dominios simples
+Repo `banco-proveedores` con los mocks de terceros (recargas, empresas de
+servicios), más seguros y reservas dentro del banco.
 
 ### Fase 7 — Reportes y asistente con IA
 Va último: el asistente sólo sirve si ya existen las acciones que puede ejecutar.
@@ -120,14 +154,25 @@ Sale del historial real: backend 21 commits de Codex y 3 de Máximo; frontend 20
 
 ---
 
-## Pendiente de definición
+## Decisión: los proveedores van aparte
 
-**Servicios propios separados.** Maxi planteó que recargas, servicios, préstamos y
-compañía vayan como **APIs aparte** que el banco consume, en vez de vivir dentro del
-backend. Falta cerrar el alcance antes de escribir el contrato de la fase 1:
-si son mocks de terceros (telco, empresas de servicios) o si es partir nuestro
-propio banco en servicios por dominio. Cambia bastante el trabajo, así que se
-decide antes de la fase 1.
+Recargas, servicios y demás **no se implementan dentro del backend**: van como
+**mocks de terceros** en un repo nuevo y compartido, `banco-proveedores`, que el
+banco consume por HTTP como si fueran externos de verdad.
+
+- **Qué mockea:** operadoras de celular (recargas), empresas de servicios
+  (catálogo, deuda, pagos) y lo que haga falta simular de un proveedor externo.
+- **Qué NO va ahí:** préstamos, plazos fijos y tarjetas son negocio del banco,
+  no de un tercero. Se quedan en `banco-backend`. Las **tasas** tampoco: salen de
+  ArgentinaDatos, que es una API real.
+- **Por qué así:** el banco termina hablando con proveedores por HTTP igual que
+  en la vida real, y el mock se puede tirar abajo para probar timeouts y caídas
+  sin tocar el banco.
+- **Dueño:** Gonza puede tomar el repo entero, junto con las secciones del portal
+  que lo consumen.
+
+El adapter de `src/modules/mercado/` termina siendo la única puerta de entrada a
+datos de afuera, sean APIs reales (DolarAPI, ArgentinaDatos) o nuestros mocks.
 
 ---
 
@@ -136,9 +181,9 @@ decide antes de la fase 1.
 | Riesgo | Nota |
 |---|---|
 | Transferencias sin moneda | El más serio, y no lo arreglamos solos. Al grupo en la fase 1 |
-| data912 y BCRA sin confirmar | Probar con `curl` en la fase 1, no en la 5 |
+| ~~data912 y BCRA sin confirmar~~ | **Resuelto:** data912 anda, BCRA descartada. Ver fase 1 |
 | Alcance grande para dos personas | Si hay que cortar, se corta por el final |
-| `Dinero` redondea a 2 decimales | Revisar para UVA y ratios de CEDEARs antes de la fase 5 |
+| `Dinero` redondea a 2 decimales | UVA verificada, entra en 2 decimales. Queda el ratio de CEDEARs, que no es dinero |
 | Node 18 | Limita versiones de dependencias nuevas |
 | API key del asistente | Definir secreto y costo antes de la fase 7 |
 
