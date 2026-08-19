@@ -1,0 +1,2501 @@
+# Banco Central API — Propuesta v1.1.0-draft
+# Extiende la spec vigente (v1.0.0) con cuentas en USD, prestamos e inversiones.
+# Documento para consenso entre bancos. Cargar en https://editor.swagger.io
+
+openapi: 3.0.3
+info:
+  title: Banco Central API
+  version: 1.1.0-draft
+  description: |
+    API central para la gestión interbancaria entre los bancos de los estudiantes.
+
+
+    ## Ambientes
+
+    Usá el header `x-environment` para elegir la base de datos:
+
+    | Header | Base de datos | Uso |
+    |--------|--------------|-----|
+    | `x-environment: test` | `bancoCentral_test` | Desarrollo y pruebas |
+    | `x-environment: prod` _(o sin header)_ | `bancoCentral` | Producción |
+
+    ## Autenticación
+
+    Todos los endpoints (excepto registrar banco) requieren el header `x-api-key` con la API key recibida al registrarse.
+
+    ---
+
+    ## Propuesta v1.1 — en discusión entre bancos
+
+    Esta versión del documento agrega tres capacidades sobre la v1.0.0 vigente. **Todo lo de la v1.0.0 sigue funcionando igual**; no hay cambios que rompan clientes existentes.
+
+    | Bloque | Tags | Qué agrega |
+    |--------|------|------------|
+    | Cuentas en USD | `Cuentas`, `Cotizaciones` | Una persona puede tener más de una caja de ahorro, cada una con su CBU y su moneda. Cotización oficial del dólar y operaciones de cambio. |
+    | Préstamos | `Tasas`, `Préstamos` | El Banco Central publica la tasa de referencia y el cálculo oficial de la cuota. Central de deudores consolidada. |
+    | Inversiones | `Tasas`, `Inversiones` | Plazos fijos con tasa de referencia publicada por el Banco Central. |
+
+    ### Principio de diseño
+
+    El Banco Central **no mueve dinero y no guarda saldos**, igual que hoy en `POST /transactions`. Cumple tres funciones:
+
+    1. **Autoridad de tasas y cotización** — publica los valores que todos los bancos deben respetar.
+    2. **Calculadora oficial** — devuelve la cuota, el cronograma y los intereses, para que todos los bancos muestren el mismo número al cliente.
+    3. **Registro consolidado** — sabe qué debe cada persona en el sistema, sin revelar en qué banco.
+
+    Cada banco sigue siendo responsable de debitar y acreditar en su propia base de datos.
+
+    ### Cambios sobre endpoints existentes
+
+    - `POST /transactions` acepta `moneda` opcional y devuelve `moneda`. Nuevo caso de error `400` cuando el CBU origen y el destino son de monedas distintas.
+    - `GET /transactions` devuelve `moneda` en cada transacción.
+    - El schema `Error` suma un campo opcional `codigo` con un identificador estable para manejo automático.
+    - `PUT /persons/{cbu}/alias` no cambia su contrato, pero ahora el alias queda asociado **a la cuenta de ese CBU**, no a la persona. Cada moneda puede tener su propio alias.
+servers:
+- url: https://centralbank.brocoly.cc/api
+  description: Servidor
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+    RegisterToken:
+      type: http
+      scheme: bearer
+      description: Token provisto por el docentte para registrar un banco
+  parameters:
+    Environment:
+      name: x-environment
+      in: header
+      required: false
+      schema:
+        type: string
+        enum:
+        - prod
+        - test
+        default: prod
+      description: Base de datos destino. Usar `test` durante el desarrollo.
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        codigo:
+          type: string
+          description: Identificador estable del error, para manejo automático por parte del banco cliente.
+            Propuesto en v1.1.
+          example: SALDO_INSUFICIENTE
+    Moneda:
+      type: string
+      enum:
+      - ARS
+      - USD
+      description: Moneda de la cuenta u operación. `ARS` es el valor por defecto para toda cuenta creada
+        con `POST /persons`.
+      example: USD
+    Cuenta:
+      type: object
+      description: Cuenta de una persona en un banco. Cada cuenta tiene su propio CBU de 22 dígitos y
+        su propio alias.
+      properties:
+        cbu:
+          type: string
+          minLength: 22
+          maxLength: 22
+          example: '0010001430123456000210'
+        moneda:
+          $ref: '#/components/schemas/Moneda'
+        tipo:
+          type: string
+          enum:
+          - caja_ahorro
+          description: Por ahora el único tipo soportado es caja de ahorro.
+          example: caja_ahorro
+        alias:
+          type: string
+          nullable: true
+          example: juan.perez.usd
+        bankCode:
+          type: integer
+          example: 1
+        principal:
+          type: boolean
+          description: '`true` para la cuenta en ARS creada junto con la persona en `POST /persons`. Es
+            la cuenta que identifica a la persona en los endpoints heredados.'
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-08-04T13:20:00.000Z'
+    CotizacionUSD:
+      type: object
+      description: Cotización oficial publicada por el Banco Central. Es la referencia obligatoria para
+        toda operación de cambio entre bancos.
+      properties:
+        moneda:
+          type: string
+          example: USD
+        compra:
+          type: number
+          description: Pesos que el banco paga al cliente por cada dólar que le compra.
+          example: 1180.5
+        venta:
+          type: number
+          description: Pesos que el cliente paga al banco por cada dólar que le compra.
+          example: 1230
+        spreadMaximoBancario:
+          type: number
+          description: Desvío porcentual máximo que cada banco puede aplicar sobre la cotización oficial
+            al operar con sus clientes. Un valor de 3 significa ±3%.
+          example: 3
+        vigenciaDesde:
+          type: string
+          format: date-time
+          example: '2026-08-04T12:00:00.000Z'
+    TasasVigentes:
+      type: object
+      description: Conjunto de tasas de referencia publicado por el Banco Central para una moneda. Es
+        la fuente única de verdad para préstamos e inversiones.
+      properties:
+        moneda:
+          $ref: '#/components/schemas/Moneda'
+        vigenciaDesde:
+          type: string
+          format: date-time
+          example: '2026-08-01T00:00:00.000Z'
+        prestamos:
+          type: object
+          properties:
+            tnaReferencia:
+              type: number
+              description: Tasa Nominal Anual de referencia, en porcentaje. Es la tasa que se aplica si
+                el banco no informa una propia.
+              example: 72
+            spreadMaximo:
+              type: number
+              description: Puntos porcentuales que un banco puede sumar sobre `tnaReferencia`.
+              example: 15
+            tnaMaxima:
+              type: number
+              description: '`tnaReferencia + spreadMaximo`. Ningún préstamo puede registrarse por encima
+                de este valor.'
+              example: 87
+            plazosPermitidos:
+              type: array
+              items:
+                type: integer
+              description: Cantidades de cuotas admitidas.
+              example:
+              - 3
+              - 6
+              - 12
+              - 18
+              - 24
+              - 36
+            punitoriosMultiplicadorMaximo:
+              type: number
+              description: Múltiplo máximo de la TNA que puede cobrarse sobre cuotas en mora.
+              example: 1.5
+        plazoFijo:
+          type: object
+          properties:
+            tnaReferencia:
+              type: number
+              example: 58
+            spreadMaximo:
+              type: number
+              description: Puntos porcentuales que un banco puede restar o sumar sobre `tnaReferencia`.
+              example: 5
+            tnaMinima:
+              type: number
+              description: '`tnaReferencia - spreadMaximo`. Ninguna inversión puede registrarse por debajo
+                de este valor.'
+              example: 53
+            plazoMinimoDias:
+              type: integer
+              example: 30
+            plazoMaximoDias:
+              type: integer
+              example: 365
+            tnaCancelacionAnticipada:
+              type: number
+              description: TNA que se reconoce sobre los días efectivamente transcurridos cuando el cliente
+                rescata el plazo fijo antes del vencimiento.
+              example: 12
+    CronogramaCuota:
+      type: object
+      description: Fila del cronograma de amortización (sistema francés).
+      properties:
+        nro:
+          type: integer
+          example: 1
+        vencimiento:
+          type: string
+          format: date
+          nullable: true
+          description: Presente solo si se informó `fechaOtorgamiento`. Es `fechaOtorgamiento` más `nro`
+            meses.
+          example: '2026-09-04'
+        cuota:
+          type: number
+          description: Importe total de la cuota.
+          example: 119277.03
+        capital:
+          type: number
+          description: Porción de la cuota que amortiza capital.
+          example: 59277.03
+        interes:
+          type: number
+          description: Porción de la cuota que corresponde a intereses.
+          example: 60000
+        saldo:
+          type: number
+          description: Capital adeudado después de pagar esta cuota.
+          example: 940722.97
+        estado:
+          type: string
+          enum:
+          - pendiente
+          - pagada
+          - en_mora
+          description: Solo presente en préstamos registrados, no en simulaciones.
+          example: pendiente
+    Prestamo:
+      type: object
+      properties:
+        loanId:
+          type: string
+          example: 66b0f2e3b4c5d6e7f8a9b0d1
+        cbu:
+          type: string
+          example: '0010001430123456000105'
+        moneda:
+          $ref: '#/components/schemas/Moneda'
+        capital:
+          type: number
+          example: 1000000
+        cuotas:
+          type: integer
+          example: 12
+        tna:
+          type: number
+          example: 72
+        tem:
+          type: number
+          description: Tasa Efectiva Mensual usada en el cálculo, en porcentaje. Es `tna / 12`.
+          example: 6
+        cuotaMensual:
+          type: number
+          example: 119277.03
+        totalAPagar:
+          type: number
+          example: 1431324.36
+        totalIntereses:
+          type: number
+          example: 431324.36
+        cft:
+          type: number
+          description: Costo Financiero Total anual, en porcentaje. Sin cargos adicionales equivale a
+            la TEA.
+          example: 101.22
+        saldoDeuda:
+          type: number
+          description: Capital pendiente de amortizar.
+          example: 940722.97
+        cuotasPagadas:
+          type: integer
+          example: 1
+        cuotasEnMora:
+          type: integer
+          example: 0
+        estado:
+          type: string
+          enum:
+          - vigente
+          - cancelado
+          - en_mora
+          example: vigente
+        fechaOtorgamiento:
+          type: string
+          format: date
+          example: '2026-08-04'
+        bankCode:
+          type: integer
+          example: 1
+        cronograma:
+          type: array
+          items:
+            $ref: '#/components/schemas/CronogramaCuota'
+    Inversion:
+      type: object
+      properties:
+        investmentId:
+          type: string
+          example: 66b0f2e3b4c5d6e7f8a9b0e7
+        cbu:
+          type: string
+          example: '0010001430123456000105'
+        moneda:
+          $ref: '#/components/schemas/Moneda'
+        capital:
+          type: number
+          example: 500000
+        dias:
+          type: integer
+          example: 30
+        tna:
+          type: number
+          example: 58
+        interes:
+          type: number
+          example: 23835.62
+        total:
+          type: number
+          description: '`capital + interes`. Es lo que el banco debe acreditar al vencimiento.'
+          example: 523835.62
+        tea:
+          type: number
+          description: Tasa Efectiva Anual equivalente, en porcentaje.
+          example: 76.23
+        fechaConstitucion:
+          type: string
+          format: date
+          example: '2026-08-04'
+        fechaVencimiento:
+          type: string
+          format: date
+          example: '2026-09-03'
+        estado:
+          type: string
+          enum:
+          - vigente
+          - vencido
+          - acreditado
+          - cancelado_anticipado
+          description: |
+            - `vigente`: en curso.
+            - `vencido`: pasó la fecha de vencimiento y el banco todavía no informó la acreditación.
+            - `acreditado`: el banco informó que pagó capital + intereses.
+            - `cancelado_anticipado`: el cliente rescató antes del vencimiento.
+          example: vigente
+        bankCode:
+          type: integer
+          example: 1
+    ReporteCrediticio:
+      type: object
+      description: Situación crediticia consolidada de una persona en todo el sistema. No revela en qué
+        bancos tiene deuda.
+      properties:
+        titular:
+          type: object
+          properties:
+            nombre:
+              type: string
+              example: Juan
+            apellido:
+              type: string
+              example: Pérez
+            dni:
+              type: string
+              example: '30123456'
+        situacion:
+          type: integer
+          enum:
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+          description: |
+            Clasificación según el mayor atraso registrado en cualquier banco:
+
+            | Valor | Descripción | Atraso |
+            |-------|-------------|--------|
+            | 1 | Normal | hasta 31 días |
+            | 2 | Riesgo bajo | 32 a 90 días |
+            | 3 | Riesgo medio | 91 a 180 días |
+            | 4 | Riesgo alto | 181 a 365 días |
+            | 5 | Irrecuperable | más de 365 días |
+          example: 1
+        situacionDescripcion:
+          type: string
+          example: Normal
+        mayorAtrasoDias:
+          type: integer
+          example: 0
+        bancosAcreedores:
+          type: integer
+          description: Cantidad de bancos donde la persona tiene préstamos vigentes. No se informa cuáles.
+          example: 2
+        prestamosVigentes:
+          type: integer
+          example: 2
+        prestamosCancelados:
+          type: integer
+          example: 3
+        deuda:
+          type: array
+          description: Deuda consolidada por moneda.
+          items:
+            type: object
+            properties:
+              moneda:
+                $ref: '#/components/schemas/Moneda'
+              capitalAdeudado:
+                type: number
+                example: 940722.97
+              cuotasPendientes:
+                type: integer
+                example: 11
+              cuotasEnMora:
+                type: integer
+                example: 0
+        actualizadoAl:
+          type: string
+          format: date-time
+          example: '2026-08-04T13:45:00.000Z'
+paths:
+  /banks:
+    post:
+      tags:
+      - Bancos
+      summary: Registrar banco
+      description: Registra un nuevo banco y devuelve su ID y API key. Requiere el Bearer token provisto
+        por el docente.
+      security:
+      - RegisterToken: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - name
+              properties:
+                name:
+                  type: string
+                  example: Banco Ejemplo
+      responses:
+        '201':
+          description: Banco registrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bankId:
+                    type: string
+                    example: 664a1f2e3b4c5d6e7f8a9b0c
+                  bankCode:
+                    type: integer
+                    example: 1
+                  name:
+                    type: string
+                    example: Banco Ejemplo
+                  apiKey:
+                    type: string
+                    example: uuid-generado
+                  environment:
+                    type: string
+                    example: prod
+        '409':
+          description: Ya existe un banco con ese nombre
+    get:
+      tags:
+      - Bancos
+      summary: Listar todos los bancos
+      description: Devuelve el código y nombre de todos los bancos registrados en el sistema.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      responses:
+        '200':
+          description: Lista de bancos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    bankCode:
+                      type: integer
+                      example: 1
+                    name:
+                      type: string
+                      example: Banco Ejemplo
+              example:
+              - bankCode: 1
+                name: Banco Ejemplo
+              - bankCode: 2
+                name: Banco del Sur
+        '401':
+          description: API key inválida o ausente
+  /banks/{bankCode}:
+    get:
+      tags:
+      - Bancos
+      summary: Obtener banco por código
+      description: Devuelve el nombre de un banco dado su `bankCode` numérico. Útil para mostrar el nombre
+        del banco origen/destino en los movimientos.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: bankCode
+        in: path
+        required: true
+        schema:
+          type: integer
+          example: 1
+        description: Código numérico del banco (campo `bankCodeOrigen` / `bankCodeDestino` en las transacciones).
+      responses:
+        '200':
+          description: Banco encontrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bankCode:
+                    type: integer
+                    example: 1
+                  name:
+                    type: string
+                    example: Banco Ejemplo
+              example:
+                bankCode: 1
+                name: Banco Ejemplo
+        '400':
+          description: bankCode no es un número válido
+        '401':
+          description: API key inválida o ausente
+        '404':
+          description: Banco no encontrado
+  /banks/me:
+    put:
+      tags:
+      - Bancos
+      summary: Cambiar nombre del banco
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - name
+              properties:
+                name:
+                  type: string
+                  example: Nuevo Nombre
+      responses:
+        '200':
+          description: Nombre actualizado
+        '401':
+          description: API key inválida o ausente
+        '409':
+          description: Nombre ya en uso
+  /persons:
+    post:
+      tags:
+      - Personas
+      summary: Registrar persona
+      description: |-
+        Registra una persona física en el banco autenticado y devuelve su CBU de 22 dígitos.
+
+        **Casos posibles según el DNI:**
+
+        | Situación | Resultado |
+        |-----------|-----------|
+        | DNI nuevo en tu banco | `201` — persona creada, CBU generado |
+        | DNI ya existe en **tu** banco | `200` — se devuelven los datos existentes para que puedas sincronizar tu BD local |
+        | DNI ya existe en **otro** banco | `201` — se crea igual con un CBU propio de tu banco |
+
+        El caso 200 es útil cuando borraste la persona de tu base de datos local durante pruebas: volvés a llamar a este endpoint y recuperás el CBU original sin duplicar el registro en el Banco Central.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - nombre
+              - apellido
+              - dni
+              properties:
+                nombre:
+                  type: string
+                  example: Juan
+                apellido:
+                  type: string
+                  example: Pérez
+                dni:
+                  type: string
+                  example: '30123456'
+      responses:
+        '200':
+          description: El DNI ya estaba registrado en tu banco. Se devuelven los datos existentes para
+            sincronizar tu BD local.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Persona ya registrada en tu banco — datos devueltos para sincronización
+                  cbu:
+                    type: string
+                    example: '0010001430123456000105'
+                  nombre:
+                    type: string
+                    example: Juan
+                  apellido:
+                    type: string
+                    example: Pérez
+                  dni:
+                    type: string
+                    example: '30123456'
+                  alias:
+                    type: string
+                    nullable: true
+                    example: juan.perez.banco1
+        '201':
+          description: Persona registrada por primera vez. CBU generado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Persona registrada exitosamente
+                  cbu:
+                    type: string
+                    example: '0010001430123456000105'
+                  nombre:
+                    type: string
+                    example: Juan
+                  apellido:
+                    type: string
+                    example: Pérez
+                  dni:
+                    type: string
+                    example: '30123456'
+  /persons/{cbu}:
+    get:
+      tags:
+      - Personas
+      summary: Buscar persona por CBU
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: cbu
+        in: path
+        required: true
+        schema:
+          type: string
+          example: '0010001430123456000105'
+      responses:
+        '200':
+          description: Persona encontrada
+        '404':
+          description: CBU no encontrado
+  /persons/{cbu}/alias:
+    put:
+      tags:
+      - Personas
+      summary: Asignar o cambiar alias
+      description: El alias debe ser único globalmente. Solo letras, números, puntos y guiones.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: cbu
+        in: path
+        required: true
+        schema:
+          type: string
+          example: '0010001430123456000105'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - alias
+              properties:
+                alias:
+                  type: string
+                  example: juan.perez.banco
+      responses:
+        '200':
+          description: Alias actualizado
+        '403':
+          description: La persona no pertenece a tu banco
+        '404':
+          description: CBU no encontrado
+        '409':
+          description: Alias ya en uso
+  /persons/alias/{alias}:
+    get:
+      tags:
+      - Personas
+      summary: Buscar persona por alias
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: alias
+        in: path
+        required: true
+        schema:
+          type: string
+          example: juan.perez.banco
+      responses:
+        '200':
+          description: Persona encontrada
+        '404':
+          description: Alias no encontrado
+  /persons/{cbu}/accounts:
+    post:
+      tags:
+      - Cuentas
+      summary: Abrir cuenta adicional (caja de ahorro en USD)
+      description: |
+        Abre una segunda caja de ahorro para una persona que ya existe en tu banco, en una moneda distinta a la de su cuenta principal, y devuelve un **CBU nuevo de 22 dígitos**.
+
+        La cuenta en ARS se sigue creando automáticamente con `POST /persons`; este endpoint es solo para las monedas adicionales.
+
+        **Idempotencia** — mismo criterio que `POST /persons`:
+
+        | Situación | Resultado |
+        |-----------|-----------|
+        | La persona no tiene cuenta en esa moneda | `201` — cuenta creada, CBU nuevo |
+        | La persona ya tiene cuenta en esa moneda | `200` — se devuelven los datos existentes para sincronizar tu BD local |
+
+        El parámetro `{cbu}` puede ser **cualquier** CBU de la persona; el Banco Central resuelve al titular.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: cbu
+        in: path
+        required: true
+        schema:
+          type: string
+          example: '0010001430123456000105'
+        description: CBU de cualquier cuenta de la persona. Debe pertenecer al banco autenticado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - moneda
+              properties:
+                moneda:
+                  $ref: '#/components/schemas/Moneda'
+      responses:
+        '200':
+          description: La persona ya tenía una cuenta en esa moneda. Se devuelven los datos existentes.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: La persona ya tiene una cuenta en esa moneda — datos devueltos para sincronización
+                  cuenta:
+                    $ref: '#/components/schemas/Cuenta'
+        '201':
+          description: Cuenta creada. CBU generado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Cuenta creada exitosamente
+                  cuenta:
+                    $ref: '#/components/schemas/Cuenta'
+              example:
+                message: Cuenta creada exitosamente
+                cuenta:
+                  cbu: '0010001430123456000210'
+                  moneda: USD
+                  tipo: caja_ahorro
+                  alias: null
+                  bankCode: 1
+                  principal: false
+                  createdAt: '2026-08-04T13:20:00.000Z'
+        '400':
+          description: Moneda no soportada, o intento de abrir una segunda cuenta en ARS.
+        '401':
+          description: API key inválida o ausente
+        '403':
+          description: La persona no pertenece a tu banco
+        '404':
+          description: CBU no encontrado
+    get:
+      tags:
+      - Cuentas
+      summary: Listar cuentas de una persona
+      description: |
+        Devuelve todas las cuentas que la persona tiene **en el banco que la registró**, con su CBU, moneda y alias.
+
+        Cualquier banco puede consultar este endpoint: es lo que permite que un cliente elija a qué CBU del destinatario mandar una transferencia según la moneda.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: cbu
+        in: path
+        required: true
+        schema:
+          type: string
+          example: '0010001430123456000105'
+      responses:
+        '200':
+          description: Lista de cuentas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  titular:
+                    type: object
+                    properties:
+                      nombre:
+                        type: string
+                        example: Juan
+                      apellido:
+                        type: string
+                        example: Pérez
+                  cuentas:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Cuenta'
+              example:
+                titular:
+                  nombre: Juan
+                  apellido: Pérez
+                cuentas:
+                - cbu: '0010001430123456000105'
+                  moneda: ARS
+                  tipo: caja_ahorro
+                  alias: juan.perez.banco1
+                  bankCode: 1
+                  principal: true
+                  createdAt: '2026-05-04T14:00:00.000Z'
+                - cbu: '0010001430123456000210'
+                  moneda: USD
+                  tipo: caja_ahorro
+                  alias: juan.perez.usd
+                  bankCode: 1
+                  principal: false
+                  createdAt: '2026-08-04T13:20:00.000Z'
+        '401':
+          description: API key inválida o ausente
+        '404':
+          description: CBU no encontrado
+  /accounts/{cbu}:
+    get:
+      tags:
+      - Cuentas
+      summary: Resolver CBU (moneda y titular)
+      description: |
+        Devuelve los datos de la cuenta identificada por un CBU: **moneda**, tipo, alias, banco y titular.
+
+        Es la consulta obligatoria antes de transferir: el banco origen la usa para verificar que la moneda del CBU destino coincide con la del CBU origen y evitar un `400` en `POST /transactions`.
+
+        Se diferencia de `GET /persons/{cbu}`, que responde *quién es el titular*; este endpoint responde *qué cuenta es*.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: cbu
+        in: path
+        required: true
+        schema:
+          type: string
+          example: '0020001125000001000305'
+      responses:
+        '200':
+          description: Cuenta encontrada
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Cuenta'
+                - type: object
+                  properties:
+                    titular:
+                      type: object
+                      properties:
+                        nombre:
+                          type: string
+                          example: María
+                        apellido:
+                          type: string
+                          example: García
+              example:
+                cbu: '0020001125000001000305'
+                moneda: USD
+                tipo: caja_ahorro
+                alias: maria.garcia.usd
+                bankCode: 2
+                principal: false
+                createdAt: '2026-08-02T10:00:00.000Z'
+                titular:
+                  nombre: María
+                  apellido: García
+        '401':
+          description: API key inválida o ausente
+        '404':
+          description: CBU no encontrado
+  /transactions:
+    post:
+      tags:
+      - Transacciones
+      summary: Realizar transferencia
+      description: |-
+        Inicia una transferencia desde una cuenta del banco autenticado hacia cualquier CBU del sistema (mismo banco u otro).
+
+        **Flujo completo:**
+        ```
+        Banco1 (origen) ──POST /transactions──► Banco Central ──guarda tx──► responde al Banco1
+                                                                         └── Banco2 (destino) lo ve con GET /transactions
+        ```
+
+        **Reglas:**
+        - `cbuOrigen` debe pertenecer al banco que hace la llamada (validado por API key).
+        - `saldoOrigen` lo envía el banco origen desde su propia base de datos; el Banco Central lo usa **solo para autorizar** y **no lo expone** a terceros.
+        - Si `saldoOrigen < importe`, la transacción queda registrada con `estado: "rechazada"`.
+        - El banco origen es responsable de descontar el importe de su propio saldo si la respuesta es `aprobada`.
+
+        **v1.1 — monedas:** una transferencia nunca cruza monedas. Si `cbuOrigen` y `cbuDestino` pertenecen a cuentas de distinta moneda, la respuesta es `400` con `codigo: MONEDA_INCOMPATIBLE`. Resolvé la moneda del CBU destino con `GET /accounts/{cbu}` antes de transferir. Para cambiar pesos por dólares está `POST /fx/exchanges`.
+
+        `saldoOrigen` se expresa en la moneda de la cuenta origen.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - cbuOrigen
+              - cbuDestino
+              - importe
+              - saldoOrigen
+              properties:
+                cbuOrigen:
+                  type: string
+                  minLength: 22
+                  maxLength: 22
+                  description: CBU de 22 dígitos del cliente que envía. Debe pertenecer al banco autenticado.
+                  example: '0010001430123456000105'
+                cbuDestino:
+                  type: string
+                  minLength: 22
+                  maxLength: 22
+                  description: CBU de 22 dígitos del cliente que recibe. Puede ser de cualquier banco
+                    registrado.
+                  example: '0020001125000001000107'
+                importe:
+                  type: number
+                  exclusiveMinimum: true
+                  description: Monto a transferir. Debe ser mayor a cero.
+                  example: 1500
+                  minimum: 0
+                saldoOrigen:
+                  type: number
+                  minimum: 0
+                  description: Saldo actual del cliente origen según tu base de datos. Se usa solo para
+                    autorizar; nunca se expone al banco destino.
+                  example: 3000
+                moneda:
+                  type: string
+                  enum:
+                  - ARS
+                  - USD
+                  description: Opcional, defensivo. Si se envía, debe coincidir con la moneda de ambas
+                    cuentas; si no coincide, la respuesta es 400. Agregado en v1.1.
+                  example: ARS
+      responses:
+        '201':
+          description: Transferencia aprobada. El banco origen debe descontar el importe de su saldo local.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Transacción aprobada
+                  transaccionId:
+                    type: string
+                    example: 6641f2e3b4c5d6e7f8a9b0c1
+                  estado:
+                    type: string
+                    enum:
+                    - aprobada
+                    example: aprobada
+                  cbuOrigen:
+                    type: string
+                    example: '0010001430123456000105'
+                  cbuDestino:
+                    type: string
+                    example: '0020001125000001000107'
+                  importe:
+                    type: number
+                    example: 1500
+                  nombreOrigen:
+                    type: string
+                    example: Juan Pérez
+                  nombreDestino:
+                    type: string
+                    example: María García
+                  moneda:
+                    type: string
+                    enum:
+                    - ARS
+                    - USD
+                    description: Moneda de la operación, resuelta por el Banco Central a partir de las
+                      cuentas. Agregado en v1.1.
+                    example: ARS
+              example:
+                message: Transacción aprobada
+                transaccionId: 6641f2e3b4c5d6e7f8a9b0c1
+                estado: aprobada
+                cbuOrigen: '0010001430123456000105'
+                cbuDestino: '0020001125000001000107'
+                importe: 1500
+                nombreOrigen: Juan Pérez
+                nombreDestino: María García
+                moneda: ARS
+        '400':
+          description: Datos inválidos, CBU origen igual al destino, o las cuentas son de monedas distintas
+            (`MONEDA_INCOMPATIBLE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: La cuenta origen es ARS y la cuenta destino es USD
+                codigo: MONEDA_INCOMPATIBLE
+        '403':
+          description: El CBU origen no pertenece al banco autenticado
+        '404':
+          description: CBU origen o destino no encontrado en el sistema
+        '422':
+          description: Saldo insuficiente. La transacción queda registrada como rechazada.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Saldo insuficiente
+                  estado:
+                    type: string
+                    enum:
+                    - rechazada
+                    example: rechazada
+                  importe:
+                    type: number
+                    example: 1500
+                  saldoOrigen:
+                    type: number
+                    example: 800
+    get:
+      tags:
+      - Transacciones
+      summary: Listar transacciones del banco
+      description: |-
+        Devuelve las últimas 100 transacciones en las que el banco autenticado participa, ya sea como **origen** (envió dinero) o como **destino** (recibió dinero).
+
+        **Uso principal para el banco destino — polling de transferencias recibidas:**
+
+        El banco destino debe llamar a este endpoint periódicamente para enterarse de las transferencias que le llegaron. Cada transacción incluye los datos completos del emisor para que el cliente receptor pueda ver de quién vino el dinero.
+
+        ```
+        persona1 → Banco1 → POST /transactions → Banco Central
+                                                      ↓
+        persona2 ← Banco2 ← GET /transactions ← Banco Central
+        ```
+
+        **Datos del emisor incluidos:** nombre, apellido, DNI, CBU y alias (si tiene).
+        **Dato NO incluido:** `saldoOrigen` — es confidencial del banco origen y nunca se expone.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: minutos
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 1440
+          default: 30
+        description: 'Ventana de tiempo en minutos hacia atrás desde ahora. Mínimo 1, máximo 1440 (24hs).
+          Por defecto 30. Recomendado: pollear cada 15 min con `minutos=30` para tener overlap y no perder
+          transferencias.'
+      responses:
+        '200':
+          description: Lista de transacciones enriquecida con datos de las personas involucradas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    _id:
+                      type: string
+                      description: ID interno de la transacción
+                      example: 6641f2e3b4c5d6e7f8a9b0c1
+                    cbuOrigen:
+                      type: string
+                      example: '0010001430123456000105'
+                    cbuDestino:
+                      type: string
+                      example: '0020001125000001000107'
+                    importe:
+                      type: number
+                      example: 1500
+                    estado:
+                      type: string
+                      enum:
+                      - aprobada
+                      - rechazada
+                      example: aprobada
+                    motivoRechazo:
+                      type: string
+                      nullable: true
+                      description: Solo presente si estado es "rechazada"
+                      example: Saldo insuficiente
+                    bankCodeOrigen:
+                      type: integer
+                      description: Código numérico del banco que originó la transferencia
+                      example: 1
+                    bankCodeDestino:
+                      type: integer
+                      description: Código numérico del banco que recibe la transferencia
+                      example: 2
+                    createdAt:
+                      type: string
+                      format: date-time
+                      example: '2026-05-04T14:32:00.000Z'
+                    personaOrigen:
+                      type: object
+                      description: Datos completos del emisor. El banco destino usa esto para mostrarle
+                        al receptor de quién vino el dinero.
+                      properties:
+                        nombre:
+                          type: string
+                          example: Juan
+                        apellido:
+                          type: string
+                          example: Pérez
+                        dni:
+                          type: string
+                          example: '30123456'
+                        cbu:
+                          type: string
+                          example: '0010001430123456000105'
+                        alias:
+                          type: string
+                          nullable: true
+                          example: juan.perez.banco1
+                    personaDestino:
+                      type: object
+                      description: Datos del receptor, sin DNI (no es necesario exponerlo al banco origen).
+                      properties:
+                        nombre:
+                          type: string
+                          example: María
+                        apellido:
+                          type: string
+                          example: García
+                        cbu:
+                          type: string
+                          example: '0020001125000001000107'
+                        alias:
+                          type: string
+                          nullable: true
+                          example: null
+                    moneda:
+                      type: string
+                      enum:
+                      - ARS
+                      - USD
+                      description: Moneda de la transferencia. Agregado en v1.1.
+                      example: ARS
+              example:
+              - _id: 6641f2e3b4c5d6e7f8a9b0c1
+                cbuOrigen: '0010001430123456000105'
+                cbuDestino: '0020001125000001000107'
+                importe: 1500
+                estado: aprobada
+                bankCodeOrigen: 1
+                bankCodeDestino: 2
+                createdAt: '2026-05-04T14:32:00.000Z'
+                personaOrigen:
+                  nombre: Juan
+                  apellido: Pérez
+                  dni: '30123456'
+                  cbu: '0010001430123456000105'
+                  alias: juan.perez.banco1
+                personaDestino:
+                  nombre: María
+                  apellido: García
+                  cbu: '0020001125000001000107'
+                  alias: null
+                moneda: ARS
+              - _id: 6641f2e3b4c5d6e7f8a9b0c2
+                cbuOrigen: '0020001125000001000107'
+                cbuDestino: '0010001430123456000105'
+                importe: 500
+                estado: rechazada
+                motivoRechazo: Saldo insuficiente
+                bankCodeOrigen: 2
+                bankCodeDestino: 1
+                createdAt: '2026-05-04T15:10:00.000Z'
+                personaOrigen:
+                  nombre: María
+                  apellido: García
+                  dni: '25987654'
+                  cbu: '0020001125000001000107'
+                  alias: null
+                personaDestino:
+                  nombre: Juan
+                  apellido: Pérez
+                  cbu: '0010001430123456000105'
+                  alias: juan.perez.banco1
+                moneda: ARS
+        '401':
+          description: API key inválida o ausente
+  /fx/usd:
+    get:
+      tags:
+      - Cotizaciones
+      summary: Cotización oficial del dólar
+      description: |
+        Devuelve la cotización vigente publicada por el Banco Central. Todos los bancos deben tomarla como referencia para las operaciones de cambio de sus clientes.
+
+        Cada banco puede aplicar su propio precio siempre que se mantenga dentro de `spreadMaximoBancario` respecto de la cotización oficial. `POST /fx/exchanges` valida ese límite.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      responses:
+        '200':
+          description: Cotización vigente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CotizacionUSD'
+              example:
+                moneda: USD
+                compra: 1180.5
+                venta: 1230
+                spreadMaximoBancario: 3
+                vigenciaDesde: '2026-08-04T12:00:00.000Z'
+        '401':
+          description: API key inválida o ausente
+    put:
+      tags:
+      - Cotizaciones
+      summary: Publicar cotización del dólar
+      description: Reservado a la autoridad monetaria. Requiere el Bearer token del docente, igual que
+        el registro de bancos.
+      security:
+      - RegisterToken: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - compra
+              - venta
+              properties:
+                compra:
+                  type: number
+                  exclusiveMinimum: true
+                  example: 1180.5
+                  minimum: 0
+                venta:
+                  type: number
+                  exclusiveMinimum: true
+                  example: 1230
+                  minimum: 0
+                spreadMaximoBancario:
+                  type: number
+                  minimum: 0
+                  default: 3
+                  example: 3
+      responses:
+        '200':
+          description: Cotización actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CotizacionUSD'
+        '400':
+          description: '`compra` mayor o igual a `venta`, o valores no positivos'
+        '401':
+          description: Token inválido o ausente
+  /fx/exchanges:
+    post:
+      tags:
+      - Cotizaciones
+      summary: Registrar compra o venta de dólares
+      description: |
+        Registra una operación de cambio **entre dos cuentas de la misma persona en tu propio banco**: una en ARS y otra en USD. Es la única operación del sistema que cruza monedas.
+
+        ```
+        compra de USD:  cuenta ARS ──(paga a cotización venta)──► cuenta USD
+        venta de USD:   cuenta USD ──(cobra a cotización compra)──► cuenta ARS
+        ```
+
+        **Reglas:**
+        - Ambos CBU deben pertenecer al banco autenticado y al mismo titular.
+        - Las monedas de origen y destino deben ser distintas.
+        - `tipoCambioAplicado` debe estar dentro de `spreadMaximoBancario` respecto de la cotización oficial vigente; si no, `400`.
+        - `saldoOrigen` se usa **solo para autorizar**, igual que en `POST /transactions`, y nunca se expone.
+        - El Banco Central **no mueve saldos**: si la respuesta es `201`, tu banco debe debitar `importeOrigen` y acreditar `importeDestino` en tu propia base de datos.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - cbuOrigen
+              - cbuDestino
+              - importeOrigen
+              - tipoCambioAplicado
+              - saldoOrigen
+              properties:
+                cbuOrigen:
+                  type: string
+                  minLength: 22
+                  maxLength: 22
+                  description: CBU del que sale el dinero.
+                  example: '0010001430123456000105'
+                cbuDestino:
+                  type: string
+                  minLength: 22
+                  maxLength: 22
+                  description: CBU del mismo titular, en la otra moneda.
+                  example: '0010001430123456000210'
+                importeOrigen:
+                  type: number
+                  exclusiveMinimum: true
+                  description: Monto expresado en la moneda de `cbuOrigen`.
+                  example: 1230000
+                  minimum: 0
+                tipoCambioAplicado:
+                  type: number
+                  exclusiveMinimum: true
+                  description: Pesos por dólar que tu banco le cobró o pagó al cliente.
+                  example: 1230
+                  minimum: 0
+                saldoOrigen:
+                  type: number
+                  minimum: 0
+                  example: 2000000
+      responses:
+        '201':
+          description: Operación de cambio aprobada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Operación de cambio aprobada
+                  operacionId:
+                    type: string
+                    example: 66b0f2e3b4c5d6e7f8a9b0f3
+                  operacion:
+                    type: string
+                    enum:
+                    - compra
+                    - venta
+                    description: Vista desde el cliente. `compra` significa que el cliente compró dólares.
+                    example: compra
+                  importeOrigen:
+                    type: number
+                    example: 1230000
+                  monedaOrigen:
+                    $ref: '#/components/schemas/Moneda'
+                  importeDestino:
+                    type: number
+                    description: Calculado por el Banco Central como `importeOrigen / tipoCambioAplicado`
+                      en una compra, o `importeOrigen * tipoCambioAplicado` en una venta. Redondeado a
+                      2 decimales.
+                    example: 1000
+                  monedaDestino:
+                    $ref: '#/components/schemas/Moneda'
+                  tipoCambioAplicado:
+                    type: number
+                    example: 1230
+                  tipoCambioOficial:
+                    type: number
+                    example: 1230
+                  createdAt:
+                    type: string
+                    format: date-time
+                    example: '2026-08-04T13:30:00.000Z'
+              example:
+                message: Operación de cambio aprobada
+                operacionId: 66b0f2e3b4c5d6e7f8a9b0f3
+                operacion: compra
+                importeOrigen: 1230000
+                monedaOrigen: ARS
+                importeDestino: 1000
+                monedaDestino: USD
+                tipoCambioAplicado: 1230
+                tipoCambioOficial: 1230
+                createdAt: '2026-08-04T13:30:00.000Z'
+        '400':
+          description: Las cuentas tienen la misma moneda, o `tipoCambioAplicado` excede el spread permitido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: El tipo de cambio aplicado excede el spread máximo permitido (±3%)
+                codigo: TIPO_CAMBIO_FUERA_DE_RANGO
+        '401':
+          description: API key inválida o ausente
+        '403':
+          description: Alguna de las cuentas no pertenece a tu banco, o no son del mismo titular.
+        '404':
+          description: CBU origen o destino no encontrado
+        '422':
+          description: Saldo insuficiente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Saldo insuficiente
+                codigo: SALDO_INSUFICIENTE
+  /rates:
+    get:
+      tags:
+      - Tasas
+      summary: Tasas de referencia vigentes
+      description: |
+        Devuelve las tasas que el Banco Central publica para préstamos e inversiones. **Es la fuente única de verdad**: ningún banco puede otorgar un préstamo por encima de `prestamos.tnaMaxima` ni tomar un plazo fijo por debajo de `plazoFijo.tnaMinima`.
+
+        Se recomienda cachearlas y refrescarlas al menos una vez por día.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: moneda
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - ARS
+          - USD
+        description: Si se omite, se devuelven las tasas de todas las monedas.
+      responses:
+        '200':
+          description: Tasas vigentes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TasasVigentes'
+              example:
+              - moneda: ARS
+                vigenciaDesde: '2026-08-01T00:00:00.000Z'
+                prestamos:
+                  tnaReferencia: 72
+                  spreadMaximo: 15
+                  tnaMaxima: 87
+                  plazosPermitidos:
+                  - 3
+                  - 6
+                  - 12
+                  - 18
+                  - 24
+                  - 36
+                  punitoriosMultiplicadorMaximo: 1.5
+                plazoFijo:
+                  tnaReferencia: 58
+                  spreadMaximo: 5
+                  tnaMinima: 53
+                  plazoMinimoDias: 30
+                  plazoMaximoDias: 365
+                  tnaCancelacionAnticipada: 12
+              - moneda: USD
+                vigenciaDesde: '2026-08-01T00:00:00.000Z'
+                prestamos:
+                  tnaReferencia: 9
+                  spreadMaximo: 4
+                  tnaMaxima: 13
+                  plazosPermitidos:
+                  - 12
+                  - 24
+                  - 36
+                  punitoriosMultiplicadorMaximo: 1.5
+                plazoFijo:
+                  tnaReferencia: 4
+                  spreadMaximo: 1
+                  tnaMinima: 3
+                  plazoMinimoDias: 30
+                  plazoMaximoDias: 365
+                  tnaCancelacionAnticipada: 1
+        '401':
+          description: API key inválida o ausente
+    put:
+      tags:
+      - Tasas
+      summary: Publicar nuevas tasas
+      description: |
+        Reservado a la autoridad monetaria. Requiere el Bearer token del docente.
+
+        Publicar tasas **no modifica los préstamos ni las inversiones ya registrados**: cada operación queda congelada con la tasa vigente al momento de constituirse.
+      security:
+      - RegisterToken: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - moneda
+              - prestamos
+              - plazoFijo
+              properties:
+                moneda:
+                  $ref: '#/components/schemas/Moneda'
+                prestamos:
+                  type: object
+                  required:
+                  - tnaReferencia
+                  - spreadMaximo
+                  properties:
+                    tnaReferencia:
+                      type: number
+                      example: 72
+                    spreadMaximo:
+                      type: number
+                      example: 15
+                    plazosPermitidos:
+                      type: array
+                      items:
+                        type: integer
+                      example:
+                      - 3
+                      - 6
+                      - 12
+                      - 18
+                      - 24
+                      - 36
+                    punitoriosMultiplicadorMaximo:
+                      type: number
+                      example: 1.5
+                plazoFijo:
+                  type: object
+                  required:
+                  - tnaReferencia
+                  - spreadMaximo
+                  properties:
+                    tnaReferencia:
+                      type: number
+                      example: 58
+                    spreadMaximo:
+                      type: number
+                      example: 5
+                    plazoMinimoDias:
+                      type: integer
+                      example: 30
+                    plazoMaximoDias:
+                      type: integer
+                      example: 365
+                    tnaCancelacionAnticipada:
+                      type: number
+                      example: 12
+      responses:
+        '200':
+          description: Tasas publicadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TasasVigentes'
+        '400':
+          description: Valores inválidos
+        '401':
+          description: Token inválido o ausente
+  /rates/history:
+    get:
+      tags:
+      - Tasas
+      summary: Histórico de tasas
+      description: Devuelve las publicaciones anteriores, ordenadas de la más reciente a la más antigua.
+        Sirve para auditar con qué tasa se constituyó una operación vieja.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: moneda
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - ARS
+          - USD
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Histórico de tasas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TasasVigentes'
+        '401':
+          description: API key inválida o ausente
+  /loans/simulate:
+    post:
+      tags:
+      - Préstamos
+      summary: Simular un préstamo
+      description: |
+        Calcula la cuota y el cronograma completo **sin registrar nada**. Existe para que todos los bancos muestren exactamente el mismo número al cliente.
+
+        **Método de cálculo acordado — sistema francés (cuota fija):**
+
+        ```
+        tem   = tna / 12 / 100
+        cuota = capital × tem / (1 − (1 + tem)^−cuotas)
+        ```
+
+        - Todos los importes se redondean a **2 decimales, half-up**.
+        - El interés de cada cuota se calcula sobre el saldo remanente.
+        - La **última cuota absorbe el residuo** de redondeo para que el saldo cierre exactamente en 0.
+        - Si se omite `tna`, se usa `prestamos.tnaReferencia` de `GET /rates` para la moneda de la cuenta.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - capital
+              - cuotas
+              properties:
+                capital:
+                  type: number
+                  exclusiveMinimum: true
+                  example: 1000000
+                  minimum: 0
+                cuotas:
+                  type: integer
+                  minimum: 1
+                  description: Debe estar en `prestamos.plazosPermitidos`.
+                  example: 12
+                moneda:
+                  $ref: '#/components/schemas/Moneda'
+                tna:
+                  type: number
+                  exclusiveMinimum: true
+                  description: Si se omite, se usa la TNA de referencia vigente. No puede superar `prestamos.tnaMaxima`.
+                  example: 72
+                  minimum: 0
+                fechaOtorgamiento:
+                  type: string
+                  format: date
+                  description: Si se informa, el cronograma incluye la fecha de vencimiento de cada cuota.
+                  example: '2026-08-04'
+      responses:
+        '200':
+          description: Simulación calculada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  moneda:
+                    $ref: '#/components/schemas/Moneda'
+                  capital:
+                    type: number
+                    example: 1000000
+                  cuotas:
+                    type: integer
+                    example: 12
+                  tna:
+                    type: number
+                    example: 72
+                  tem:
+                    type: number
+                    example: 6
+                  cuotaMensual:
+                    type: number
+                    example: 119277.03
+                  totalAPagar:
+                    type: number
+                    example: 1431324.36
+                  totalIntereses:
+                    type: number
+                    example: 431324.36
+                  cft:
+                    type: number
+                    example: 101.22
+                  cronograma:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CronogramaCuota'
+              example:
+                moneda: ARS
+                capital: 1000000
+                cuotas: 12
+                tna: 72
+                tem: 6
+                cuotaMensual: 119277.03
+                totalAPagar: 1431324.36
+                totalIntereses: 431324.36
+                cft: 101.22
+                cronograma:
+                - nro: 1
+                  vencimiento: '2026-09-04'
+                  cuota: 119277.03
+                  capital: 59277.03
+                  interes: 60000
+                  saldo: 940722.97
+                - nro: 2
+                  vencimiento: '2026-10-04'
+                  cuota: 119277.03
+                  capital: 62833.65
+                  interes: 56443.38
+                  saldo: 877889.32
+                - nro: 12
+                  vencimiento: '2027-08-04'
+                  cuota: 119277.03
+                  capital: 112525.5
+                  interes: 6751.53
+                  saldo: 0
+        '400':
+          description: '`tna` superior a la máxima permitida, cantidad de cuotas no permitida, o capital
+            no positivo.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: La TNA solicitada (95) supera la máxima permitida (87)
+                codigo: TNA_FUERA_DE_RANGO
+        '401':
+          description: API key inválida o ausente
+  /loans:
+    post:
+      tags:
+      - Préstamos
+      summary: Registrar un préstamo otorgado
+      description: |
+        Informa al Banco Central que tu banco le otorgó un préstamo a un cliente. **El Banco Central no acredita dinero**: tu banco acredita el capital en la cuenta del cliente en su propia base de datos y usa este endpoint para que el préstamo quede en la central de deudores.
+
+        La `moneda` del préstamo es la de la cuenta identificada por `cbu`; un préstamo en dólares se otorga sobre la caja de ahorro en USD.
+
+        El préstamo queda **congelado con la TNA informada**: publicaciones posteriores de `PUT /rates` no lo modifican.
+
+        Si el titular registra situación 3 o peor en otro banco, la respuesta incluye `advertencias`. No bloquea el otorgamiento: la decisión crediticia es de cada banco.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - cbu
+              - capital
+              - cuotas
+              - fechaOtorgamiento
+              properties:
+                cbu:
+                  type: string
+                  minLength: 22
+                  maxLength: 22
+                  description: Cuenta del cliente. Debe pertenecer al banco autenticado.
+                  example: '0010001430123456000105'
+                capital:
+                  type: number
+                  exclusiveMinimum: true
+                  example: 1000000
+                  minimum: 0
+                cuotas:
+                  type: integer
+                  minimum: 1
+                  example: 12
+                tna:
+                  type: number
+                  description: Si se omite, se usa la TNA de referencia vigente.
+                  example: 72
+                fechaOtorgamiento:
+                  type: string
+                  format: date
+                  example: '2026-08-04'
+      responses:
+        '201':
+          description: Préstamo registrado
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Prestamo'
+                - type: object
+                  properties:
+                    advertencias:
+                      type: array
+                      items:
+                        type: string
+                      description: Alertas crediticias sobre el titular. Vacío si no hay observaciones.
+                      example: []
+        '400':
+          description: '`tna` fuera de rango, cantidad de cuotas no permitida, o datos inválidos.'
+        '401':
+          description: API key inválida o ausente
+        '403':
+          description: El CBU no pertenece a tu banco
+        '404':
+          description: CBU no encontrado
+    get:
+      tags:
+      - Préstamos
+      summary: Listar préstamos otorgados por el banco
+      description: Devuelve los préstamos que **tu banco** registró. No expone los préstamos de otros
+        bancos; para eso está `GET /persons/{cbu}/credit-report`.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: estado
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - vigente
+          - cancelado
+          - en_mora
+      - name: cbu
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filtra por cuenta del cliente.
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 100
+      responses:
+        '200':
+          description: Lista de préstamos. El cronograma completo se omite; usar `GET /loans/{loanId}`
+            para verlo.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Prestamo'
+        '401':
+          description: API key inválida o ausente
+  /loans/{loanId}:
+    get:
+      tags:
+      - Préstamos
+      summary: Detalle de un préstamo
+      description: Devuelve el préstamo con el cronograma completo y el estado de cada cuota.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: loanId
+        in: path
+        required: true
+        schema:
+          type: string
+          example: 66b0f2e3b4c5d6e7f8a9b0d1
+      responses:
+        '200':
+          description: Préstamo encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Prestamo'
+        '401':
+          description: API key inválida o ausente
+        '403':
+          description: El préstamo pertenece a otro banco
+        '404':
+          description: Préstamo no encontrado
+  /loans/{loanId}/payments:
+    post:
+      tags:
+      - Préstamos
+      summary: Informar el pago de una cuota
+      description: |
+        Registra el pago de una cuota. El débito del dinero lo hace tu banco en su propia base de datos; este endpoint solo actualiza la deuda en la central.
+
+        **Reglas acordadas:**
+        - No se aceptan pagos parciales: `importe` debe ser mayor o igual a la cuota. El excedente se ignora.
+        - Las cuotas se pagan **en orden**: no se puede pagar la 5 si la 4 está pendiente.
+        - Una cuota se considera `en_mora` a los 31 días corridos de su vencimiento sin pago.
+        - Cuando se paga la última cuota, el préstamo pasa a `cancelado` automáticamente.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: loanId
+        in: path
+        required: true
+        schema:
+          type: string
+          example: 66b0f2e3b4c5d6e7f8a9b0d1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - nroCuota
+              - importe
+              - fechaPago
+              properties:
+                nroCuota:
+                  type: integer
+                  minimum: 1
+                  example: 1
+                importe:
+                  type: number
+                  exclusiveMinimum: true
+                  example: 119277.03
+                  minimum: 0
+                fechaPago:
+                  type: string
+                  format: date
+                  example: '2026-09-04'
+      responses:
+        '201':
+          description: Pago registrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Cuota registrada como pagada
+                  loanId:
+                    type: string
+                    example: 66b0f2e3b4c5d6e7f8a9b0d1
+                  nroCuota:
+                    type: integer
+                    example: 1
+                  diasAtraso:
+                    type: integer
+                    description: Días transcurridos entre el vencimiento de la cuota y `fechaPago`. Cero
+                      si se pagó en término.
+                    example: 0
+                  cuotasPendientes:
+                    type: integer
+                    example: 11
+                  saldoDeuda:
+                    type: number
+                    example: 940722.97
+                  estadoPrestamo:
+                    type: string
+                    enum:
+                    - vigente
+                    - cancelado
+                    - en_mora
+                    example: vigente
+        '400':
+          description: '`importe` menor a la cuota, o hay cuotas anteriores impagas.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Existen cuotas anteriores impagas (cuota 3)
+                codigo: CUOTAS_ANTERIORES_IMPAGAS
+        '401':
+          description: API key inválida o ausente
+        '403':
+          description: El préstamo pertenece a otro banco
+        '404':
+          description: Préstamo o número de cuota no encontrado
+        '409':
+          description: La cuota ya estaba pagada
+  /persons/{cbu}/credit-report:
+    get:
+      tags:
+      - Préstamos
+      summary: Situación crediticia consolidada (central de deudores)
+      description: |
+        Devuelve la deuda que la persona mantiene **en todo el sistema financiero**, sumando los préstamos de todos los bancos.
+
+        Es la razón de ser de registrar los préstamos en el Banco Central: antes de prestar, tu banco consulta acá si la persona ya está endeudada en otro lado.
+
+        **Privacidad:** se informa *cuántos* bancos son acreedores, nunca *cuáles*.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: cbu
+        in: path
+        required: true
+        schema:
+          type: string
+          example: '0010001430123456000105'
+        description: CBU de cualquier cuenta de la persona, de cualquier banco.
+      responses:
+        '200':
+          description: Reporte crediticio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReporteCrediticio'
+              example:
+                titular:
+                  nombre: Juan
+                  apellido: Pérez
+                  dni: '30123456'
+                situacion: 1
+                situacionDescripcion: Normal
+                mayorAtrasoDias: 0
+                bancosAcreedores: 2
+                prestamosVigentes: 2
+                prestamosCancelados: 3
+                deuda:
+                - moneda: ARS
+                  capitalAdeudado: 940722.97
+                  cuotasPendientes: 11
+                  cuotasEnMora: 0
+                - moneda: USD
+                  capitalAdeudado: 1500
+                  cuotasPendientes: 6
+                  cuotasEnMora: 0
+                actualizadoAl: '2026-08-04T13:45:00.000Z'
+        '401':
+          description: API key inválida o ausente
+        '404':
+          description: CBU no encontrado
+  /investments/simulate:
+    post:
+      tags:
+      - Inversiones
+      summary: Simular un plazo fijo
+      description: |
+        Calcula el interés de un plazo fijo **sin registrarlo**.
+
+        **Método de cálculo acordado — interés simple, base 365:**
+
+        ```
+        interes = capital × (tna / 100) × (dias / 365)
+        total   = capital + interes
+        tea     = ((1 + (tna/100) × (dias/365))^(365/dias) − 1) × 100
+        ```
+
+        - Redondeo a **2 decimales, half-up**.
+        - Si se omite `tna`, se usa `plazoFijo.tnaReferencia` de `GET /rates`.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - capital
+              - dias
+              properties:
+                capital:
+                  type: number
+                  exclusiveMinimum: true
+                  example: 500000
+                  minimum: 0
+                dias:
+                  type: integer
+                  description: Debe estar entre `plazoFijo.plazoMinimoDias` y `plazoFijo.plazoMaximoDias`.
+                  example: 30
+                moneda:
+                  $ref: '#/components/schemas/Moneda'
+                tna:
+                  type: number
+                  description: No puede ser inferior a `plazoFijo.tnaMinima`.
+                  example: 58
+      responses:
+        '200':
+          description: Simulación calculada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  moneda:
+                    $ref: '#/components/schemas/Moneda'
+                  capital:
+                    type: number
+                    example: 500000
+                  dias:
+                    type: integer
+                    example: 30
+                  tna:
+                    type: number
+                    example: 58
+                  interes:
+                    type: number
+                    example: 23835.62
+                  total:
+                    type: number
+                    example: 523835.62
+                  tea:
+                    type: number
+                    example: 76.23
+              example:
+                moneda: ARS
+                capital: 500000
+                dias: 30
+                tna: 58
+                interes: 23835.62
+                total: 523835.62
+                tea: 76.23
+        '400':
+          description: '`tna` inferior a la mínima permitida, o plazo fuera del rango admitido.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: La TNA ofrecida (40) es inferior a la mínima permitida (53)
+                codigo: TNA_FUERA_DE_RANGO
+        '401':
+          description: API key inválida o ausente
+  /investments:
+    post:
+      tags:
+      - Inversiones
+      summary: Registrar un plazo fijo constituido
+      description: |
+        Informa al Banco Central que un cliente constituyó un plazo fijo en tu banco. El débito del capital lo hace tu banco localmente; este endpoint deja constancia de la obligación y de la tasa pactada.
+
+        La `moneda` es la de la cuenta identificada por `cbu`, así que un plazo fijo en dólares se constituye sobre la caja de ahorro en USD.
+
+        `fechaVencimiento` la calcula el Banco Central como `fechaConstitucion + dias`. La inversión queda congelada con la TNA informada.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - cbu
+              - capital
+              - dias
+              - fechaConstitucion
+              properties:
+                cbu:
+                  type: string
+                  minLength: 22
+                  maxLength: 22
+                  example: '0010001430123456000105'
+                capital:
+                  type: number
+                  exclusiveMinimum: true
+                  example: 500000
+                  minimum: 0
+                dias:
+                  type: integer
+                  example: 30
+                tna:
+                  type: number
+                  description: Si se omite, se usa la TNA de referencia vigente.
+                  example: 58
+                fechaConstitucion:
+                  type: string
+                  format: date
+                  example: '2026-08-04'
+      responses:
+        '201':
+          description: Plazo fijo registrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inversion'
+              example:
+                investmentId: 66b0f2e3b4c5d6e7f8a9b0e7
+                cbu: '0010001430123456000105'
+                moneda: ARS
+                capital: 500000
+                dias: 30
+                tna: 58
+                interes: 23835.62
+                total: 523835.62
+                tea: 76.23
+                fechaConstitucion: '2026-08-04'
+                fechaVencimiento: '2026-09-03'
+                estado: vigente
+                bankCode: 1
+        '400':
+          description: '`tna` inferior a la mínima permitida, plazo fuera de rango, o capital no positivo.'
+        '401':
+          description: API key inválida o ausente
+        '403':
+          description: El CBU no pertenece a tu banco
+        '404':
+          description: CBU no encontrado
+    get:
+      tags:
+      - Inversiones
+      summary: Listar plazos fijos del banco
+      description: Devuelve las inversiones registradas por **tu banco**. Filtrar por `estado=vencido`
+        es la forma de saber qué plazos fijos hay que acreditar hoy.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: estado
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - vigente
+          - vencido
+          - acreditado
+          - cancelado_anticipado
+      - name: cbu
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 100
+      responses:
+        '200':
+          description: Lista de inversiones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Inversion'
+        '401':
+          description: API key inválida o ausente
+  /investments/{investmentId}:
+    get:
+      tags:
+      - Inversiones
+      summary: Detalle de un plazo fijo
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: investmentId
+        in: path
+        required: true
+        schema:
+          type: string
+          example: 66b0f2e3b4c5d6e7f8a9b0e7
+      responses:
+        '200':
+          description: Inversión encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inversion'
+        '401':
+          description: API key inválida o ausente
+        '403':
+          description: La inversión pertenece a otro banco
+        '404':
+          description: Inversión no encontrada
+  /investments/{investmentId}/settle:
+    post:
+      tags:
+      - Inversiones
+      summary: Informar acreditación o rescate anticipado
+      description: |
+        Cierra un plazo fijo. Tu banco acredita el dinero en la cuenta del cliente y usa este endpoint para dejar constancia.
+
+        **Dos casos:**
+
+        | Caso | Cuándo | Interés reconocido |
+        |------|--------|--------------------|
+        | Acreditación al vencimiento | `fechaAcreditacion` ≥ `fechaVencimiento` | El pactado: `total` |
+        | Rescate anticipado | `cancelacionAnticipada: true` | Se recalcula con `plazoFijo.tnaCancelacionAnticipada` sobre los días efectivamente transcurridos |
+
+        El importe a acreditar lo devuelve el Banco Central en `totalAcreditado`; usá ese número para no discrepar con los demás bancos.
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Environment'
+      - name: investmentId
+        in: path
+        required: true
+        schema:
+          type: string
+          example: 66b0f2e3b4c5d6e7f8a9b0e7
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - fechaAcreditacion
+              properties:
+                fechaAcreditacion:
+                  type: string
+                  format: date
+                  example: '2026-09-03'
+                cancelacionAnticipada:
+                  type: boolean
+                  default: false
+                  description: Enviar `true` si el cliente rescató antes del vencimiento.
+                  example: false
+      responses:
+        '200':
+          description: Inversión cerrada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Plazo fijo acreditado
+                  investmentId:
+                    type: string
+                    example: 66b0f2e3b4c5d6e7f8a9b0e7
+                  estado:
+                    type: string
+                    enum:
+                    - acreditado
+                    - cancelado_anticipado
+                    example: acreditado
+                  diasTranscurridos:
+                    type: integer
+                    example: 30
+                  tnaAplicada:
+                    type: number
+                    example: 58
+                  interesAcreditado:
+                    type: number
+                    example: 23835.62
+                  totalAcreditado:
+                    type: number
+                    description: Importe exacto que tu banco debe acreditar en la cuenta del cliente.
+                    example: 523835.62
+        '400':
+          description: '`fechaAcreditacion` anterior a `fechaConstitucion`, o anterior al vencimiento
+            sin `cancelacionAnticipada: true`.'
+        '401':
+          description: API key inválida o ausente
+        '403':
+          description: La inversión pertenece a otro banco
+        '404':
+          description: Inversión no encontrada
+        '409':
+          description: La inversión ya estaba cerrada
+tags:
+- name: Bancos
+  description: Registro y consulta de bancos. Sin cambios en v1.1.
+- name: Personas
+  description: Alta de personas y resolución por CBU o alias. Sin cambios en v1.1.
+- name: Cuentas
+  description: NUEVO — Cajas de ahorro en múltiples monedas. Cada cuenta tiene su propio CBU.
+- name: Transacciones
+  description: Transferencias interbancarias. En v1.1 incorporan el campo `moneda`.
+- name: Cotizaciones
+  description: NUEVO — Cotización oficial del dólar y operaciones de cambio.
+- name: Tasas
+  description: NUEVO — Tasas de referencia para préstamos e inversiones. Fuente única de verdad.
+- name: Préstamos
+  description: NUEVO — Registro de préstamos, cálculo oficial de cuotas y central de deudores.
+- name: Inversiones
+  description: NUEVO — Plazos fijos con tasa de referencia del Banco Central.
