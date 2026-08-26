@@ -3,6 +3,7 @@ const createCrudRouter = require('../modules/crud-router');
 const entities = require('../modules/entities');
 const relationsRouter = require('../modules/relations-router');
 const transaccionesRouter = require('../modules/transacciones-router');
+const chatbotRouter = require('../modules/chatbot-router');
 
 const router = express.Router();
 
@@ -21,6 +22,7 @@ router.use('/tipos-cuenta', createCrudRouter(entities.tipos_cuenta));
 router.use('/cuentas', createCrudRouter(entities.cuentas));
 router.use('/tipos-transaccion', createCrudRouter(entities.tipos_transaccion));
 router.use('/transacciones', transaccionesRouter);
+router.use('/chatbot', chatbotRouter);
 router.use('/destinatarios', createCrudRouter(entities.destinatarios));
 router.use('/auditoria', createCrudRouter(entities.auditoria));
 router.use('/', relationsRouter);
