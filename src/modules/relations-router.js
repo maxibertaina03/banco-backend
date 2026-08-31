@@ -124,6 +124,34 @@ router.get(
 );
 
 router.get(
+  '/personas/:id/transacciones',
+  validate(paramsSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    const result = await pool.query(
+      `SELECT t.*,
+              tt.nombre AS tipo_transaccion_nombre,
+              origen.numero_cuenta AS cuenta_origen_numero,
+              destino.numero_cuenta AS cuenta_destino_numero
+       FROM transacciones t
+       JOIN tipos_transaccion tt ON tt.id = t.tipo_transaccion_id
+       JOIN cuentas origen ON origen.id = t.cuenta_origen_id
+       LEFT JOIN cuentas destino ON destino.id = t.cuenta_destino_id
+       WHERE EXISTS (
+         SELECT 1
+         FROM cuentas cuenta_persona
+         WHERE cuenta_persona.persona_id = $1
+           AND (cuenta_persona.id = t.cuenta_origen_id
+             OR cuenta_persona.id = t.cuenta_destino_id)
+       )
+       ORDER BY t.created_at DESC`,
+      [req.params.id]
+    );
+
+    res.json(result.rows);
+  })
+);
+
+router.get(
   '/usuarios/:id/auditoria',
   validate(paramsSchema, 'params'),
   asyncHandler(async (req, res) => {

@@ -21,6 +21,7 @@ const SYSTEM_INSTRUCTION = [
 const SENSITIVE_REQUEST = /\b(api[_ -]?key|token|contrase(?:ña|na)|password|secreto|credencial|prompt|instrucci[oó]n interna|jwt|dni|cl[aá]ve|clave|datos de otro|otra persona)\b/i;
 const SENSITIVE_RESPONSE = /\b(api[_ -]?key|token|contrase(?:ña|na)|password|secreto|credencial|jwt|dni|clave privada)\b/i;
 const SAFE_SENSITIVE_RESPONSE = 'No puedo mostrar información sensible o credenciales. Para una gestión segura, utilizá los canales oficiales de Banco Orbital.';
+const SAFE_PROVIDER_FALLBACK = 'No puedo consultar la información en este momento, pero puedo ayudarte con preguntas generales sobre tu cuenta y servicios bancarios. Intentá nuevamente en unos segundos.';
 const BALANCE_REQUEST = /\b(saldo|balance|cu[aá]nto tengo|dinero disponible)\b/i;
 
 function normalizeHistory(history) {
@@ -52,7 +53,7 @@ function validateInput({ message, history = [] }) {
 
 async function buildAuthorizedContext(pool, personaId) {
   const accounts = await pool.query(
-    `SELECT c.cbu, c.alias, c.numero_cuenta, c.activa
+    `SELECT c.cbu, NULL::text AS alias, c.numero_cuenta, c.saldo, c.activa
      FROM cuentas c
      WHERE c.persona_id = $1
      ORDER BY c.created_at DESC
@@ -146,17 +147,22 @@ function createChatbotService({
       return SENSITIVE_RESPONSE.test(reply) ? SAFE_SENSITIVE_RESPONSE : reply.slice(0, 4000);
     } catch (error) {
       if (error instanceof HttpError) throw error;
+
       const providerStatus = error.response?.status;
-      if (providerStatus === 401 || providerStatus === 403) {
-        throw new HttpError(503, 'El asistente virtual no está configurado correctamente.');
-      }
-      if (providerStatus === 404) {
-        throw new HttpError(503, 'El modelo del asistente no está disponible.');
-      }
       if (providerStatus === 429) {
         throw new HttpError(429, 'El asistente alcanzó el límite temporal del proveedor. Intentá más tarde.');
       }
-      throw new HttpError(502, 'El asistente virtual no pudo responder. Intentá nuevamente más tarde.');
+
+      logger.warn(
+        { err: error, personaId: usuarioActual.persona_id, providerStatus },
+        'chatbot provider fallback activated'
+      );
+
+      if (providerStatus === 401 || providerStatus === 403 || providerStatus === 404) {
+        return SAFE_PROVIDER_FALLBACK;
+      }
+
+      return SAFE_PROVIDER_FALLBACK;
     }
   }
 
