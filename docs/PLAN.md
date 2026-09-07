@@ -55,12 +55,13 @@ Verificado contra `centralbank.brocoly.cc/openapi.json`: la spec creció de
 Están numeradas porque son una secuencia real: cada una desbloquea la siguiente.
 Las fases 0 a 2 son de a uno; de la 3 en adelante se trabaja en paralelo.
 
-### Fase 0 — Higiene *(en curso)*
+### Fase 0 — Higiene *(hecha, salvo las ramas)*
 - [x] Commitear `Dinero` y el renombre a español
 - [x] Mover los documentos compartidos a `banco-backend/docs/`
 - [x] Marcar `propuesta-banco-central/` como superada
 - [ ] Sincronizar `main` desde `masita` en los dos repos
-- [ ] Recrear `gonza` y `develop` desde la `main` nueva
+- [ ] Integrar la rama `gonza`. **No se borra:** tiene el chatbot (backend, 31 ago)
+      y 4 commits viejos en el frontend. Se porta a ramas nuevas desde `main`
 - [ ] Limpiar branches `backup/*` y podar el worktree fantasma
 - [ ] Acordar el flujo: rama por feature desde `main`, PR con CI en verde
 
@@ -135,7 +136,22 @@ Repo `banco-proveedores` con los mocks de terceros (recargas, empresas de
 servicios), más seguros y reservas dentro del banco.
 
 ### Fase 7 — Reportes y asistente con IA
-Va último: el asistente sólo sirve si ya existen las acciones que puede ejecutar.
+**El asistente ya existe.** Gonza lo construyó y lo pusheó el 31 de agosto en la
+rama `gonza` del backend: `chatbot-router.js` + `chatbot-service.js` + tests,
+usando **Gemini** (no Claude, como decía el plan viejo). Incluye guardarrailes
+contra prompt injection, rate limit propio de 30 req/15 min y una lista de
+patrones sensibles que filtra pedidos y respuestas.
+
+Lo que falta no es construirlo, es **portarlo**: su rama sale de un backend de
+abril y está 27 commits atrás, así que se copian los 3 archivos sobre una rama
+nueva desde `main` y se re-cablean. Detalle que rompe si se pasa por alto:
+`chatbot-router.js` hace `require('../middlewares/clerk-auth')` como default,
+pero en `main` ese módulo exporta un objeto — va con destructuring.
+
+Queda pendiente de la fase:
+- Portar y renombrar según el glosario
+- Reportes: resumen de gastos por categoría y exportación de movimientos
+- Definir qué acciones puede ejecutar solo. Empezar con bloquear tarjeta
 
 ---
 
@@ -185,7 +201,7 @@ datos de afuera, sean APIs reales (DolarAPI, ArgentinaDatos) o nuestros mocks.
 | Alcance grande para dos personas | Si hay que cortar, se corta por el final |
 | `Dinero` redondea a 2 decimales | UVA verificada, entra en 2 decimales. Queda el ratio de CEDEARs, que no es dinero |
 | Node 18 | Limita versiones de dependencias nuevas |
-| API key del asistente | Definir secreto y costo antes de la fase 7 |
+| **`GEMINI_API_KEY` es un secreto ya, no en la fase 7** | El chatbot de Gonza la necesita para funcionar. Definir dónde vive y quién paga antes de portarlo |
 
 ## Dos lecciones ya aprendidas
 
