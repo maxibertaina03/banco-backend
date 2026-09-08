@@ -40,9 +40,11 @@ Verificado contra `centralbank.brocoly.cc/openapi.json`: la spec creció de
 3. **`GET /persons/{dni}/accounts` no existe.** No se pueden listar las cuentas de
    una persona: hay que guardar el CBU en USD localmente. Si se pierde, se recupera
    volviendo a llamar a `POST /accounts`, que devuelve `200` con los datos existentes.
-4. **ARS y USD no se resuelven igual.** `GET /accounts/{cbu}` sólo encuentra cuentas
-   que no son ARS; la caja en pesos se busca con `GET /persons/{cbu}`. Y
-   `POST /accounts` con `moneda: "ARS"` nunca crea, siempre devuelve `200`.
+4. ~~**ARS y USD no se resuelven igual.**~~ **Desmentido al probarlo** (ver abajo):
+   `GET /accounts/{cbu}` funciona para las dos monedas y siempre devuelve `moneda`.
+   Su propia documentación dice lo contrario. Es el endpoint a usar para resolver
+   cualquier CBU. Sí se confirma que `POST /accounts` con `ARS` nunca crea: devuelve
+   `200` con el CBU que ya nació en `POST /persons`.
 5. **`POST /transactions` no tiene campo `moneda` ni valida monedas.** El Central
    acepta una transferencia de un CBU en pesos a uno en dólares y mueve el `importe`
    tal cual. **Riesgo crítico, hay que plantearlo en el grupo de bancos.**
@@ -72,10 +74,41 @@ permite avanzar en paralelo sin bloquearse.
 - Nombres según el glosario; `monto` interno vs `importe` hacia el Central
 - Importes como `number`, consistente con los DTOs y con el Central
 - [x] **APIs públicas externas probadas** — ver resultados abajo
-- [ ] **Probar las seis rutas nuevas del Central** con `curl` contra
-      `x-environment: test`. Bloqueado: `CENTRAL_BANK_API_KEY` está vacío en
-      `.env`, la config vive en la tabla `banco_central_configuracion`
+- [x] **Seis rutas del Central probadas** contra `x-environment: test` — ver abajo
 - [ ] Llevar al grupo el tema de las monedas en `POST /transactions`
+
+#### Resultado de probar el Banco Central (ambiente `test`)
+
+Somos **bankCode 6, "Banco Orbital"**. Se creó una persona de prueba (DNI 48123456)
+con su caja en pesos y otra en dólares.
+
+| Llamada | Resultado |
+|---|---|
+| `POST /persons` | `201` → CBU pesos `0060001948123456001608` |
+| `POST /accounts` USD | `201` → CBU `0060001948123456001707` |
+| `POST /accounts` USD otra vez | `200` idempotente, como documenta |
+| `POST /accounts` ARS | `200` "la cuenta en ARS ya existe — se creó junto con la persona" |
+| `GET /accounts/{cbu}` **ARS** | **`200`** — la doc decía que no encontraba ARS |
+| `GET /accounts/{cbu}` USD | `200` con `moneda` y `saldo` |
+| `GET /persons/{cbu}` ARS | `200` pero **sin** campo `moneda` |
+| `PUT /accounts/{cbu}/alias` | `200` |
+| `GET /accounts/alias/{alias}` | `200` |
+| `POST /central-deudores` | `201` la primera vez, `200` "Deuda actualizada" al repetir |
+| `GET /central-deudores/{dni}` | `200`, `situacion` = la peor de las informadas |
+| `GET /central-deudores/{dni}` sin deudas | **`200` con `deudas: []`**, no el `404` que documenta |
+| `GET /central-deudores/123` | `400` "Se esperan 7 u 8 dígitos" |
+
+**Tres correcciones al plan:**
+
+1. **No hay asimetría ARS/USD.** `GET /accounts/{cbu}` resuelve las dos monedas y
+   siempre trae `moneda`. **Es el único endpoint que hace falta** para resolver un CBU:
+   el helper con fallback a `/persons/{cbu}` que estaba en la fase 2 ya no va.
+2. **`/central-deudores/{dni}` nunca devuelve 404.** Para un DNI sin deudas contesta
+   `200` con `situacion: 1` y `deudas: []`. No se puede distinguir "no existe" de "sin
+   deudas", pero da igual: la decisión se toma sobre `situacion`.
+3. **El CBU embebe el DNI.** `006` (nuestro bankCode) + `0019` + los 8 dígitos del DNI
+   + un sufijo por cuenta. Sirve para depurar, pero **no confiar en ese formato** para
+   CBUs de otros bancos.
 
 #### Resultado de probar las APIs externas (18 ago 2026)
 
@@ -114,8 +147,8 @@ Bloquea todo lo demás.
 - Cuentas multi-moneda: N cuentas por persona, cada una con CBU, moneda y alias.
   **Guardar siempre el CBU en USD localmente**, porque el Central no lo lista.
 - Extender `central-bank-client.js` con las seis rutas nuevas
-- Helper que resuelva la moneda de un CBU probando `/accounts/{cbu}` y cayendo a
-  `/persons/{cbu}`, para tapar la asimetría en un solo lugar
+- Resolver la moneda de un CBU con `GET /accounts/{cbu}`, que sirve para las dos
+  monedas (verificado). No hace falta el fallback que estaba planeado
 - Adapter de APIs externas en `src/modules/mercado/` con caché TTL y timeout
 - Consultar `GET /central-deudores/{dni}` en el alta y bloquear de situación 3 en adelante
 
