@@ -8,6 +8,8 @@ frontend apunta a esta carpeta.
 |---|---|
 | [GLOSARIO.md](GLOSARIO.md) | **Leer antes de escribir código.** Un nombre por concepto: es el contrato de nomenclatura del sistema |
 | [PLAN.md](PLAN.md) | Plan de trabajo por fases, decisiones tomadas y reparto. **Texto canónico** |
+| [openapi-banco-orbital.yaml](openapi-banco-orbital.yaml) | **Contrato de nuestra API.** Lo que implementa el backend y consume el frontend |
+| [openapi-banco-proveedores.yaml](openapi-banco-proveedores.yaml) | Contrato de los mocks de terceros, que viven en un repo aparte |
 | [plan.html](plan.html) | Fuente de la versión visual del plan, la que se comparte como página |
 | [CHANGELOG.md](CHANGELOG.md) | Historial de cambios del proyecto |
 | [entregas.md](entregas.md) | Seguimiento de entregas de la cursada |

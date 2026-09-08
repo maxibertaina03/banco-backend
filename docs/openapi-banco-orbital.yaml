@@ -1,0 +1,1394 @@
+# Banco Orbital — API v1
+#
+# Contrato de nuestro propio banco. Se escribe ANTES de implementar para que el
+# frontend pueda mockear las respuestas y avanzar sin esperar al backend.
+#
+# Cargar en https://editor.swagger.io para leerlo renderizado.
+
+openapi: 3.0.3
+
+info:
+  title: Banco Orbital — API
+  version: 1.0.0-draft
+  description: |
+    API del home banking de **Banco Orbital**. Este documento es el contrato entre
+    nuestro backend y nuestro frontend, y la referencia para los otros bancos del
+    curso que quieran comparar.
+
+    ## Alcance de la v1
+
+    Cuentas, tarjetas, préstamos y plazos fijos. **Seguros, CEDEARs y reservas
+    quedan para la v2** — decisión tomada para que el alcance entre en el tiempo
+    disponible.
+
+    Los proveedores externos simulados (recargas de celular y empresas de
+    servicios) **no están acá**: viven en una API aparte, `banco-proveedores`, que
+    este banco consume por HTTP como si fuera un tercero real.
+
+    ## Convenciones
+
+    | Tema | Convención |
+    |---|---|
+    | Autenticación | JWT de Clerk en `Authorization: Bearer <token>` |
+    | Errores | `{ "error": "mensaje" }`, con `details` opcional. Igual que el Banco Central |
+    | Paginación | `page` y `limit` por query; respuesta `{ page, limit, count, data }` |
+    | Importes | `number` con 2 decimales. Internamente se calculan en decimal exacto |
+    | Nombres | Español, según `docs/GLOSARIO.md`. Campos en `snake_case`, como ya los devuelven los DTOs |
+    | Idempotencia | Header `Idempotency-Key` (UUID v4) en **todo endpoint que mueve plata** |
+
+    ### Sobre `monto` contra `importe`
+
+    Dentro de nuestro banco el campo siempre se llama **`monto`**. `importe` aparece
+    únicamente en lo que viaja hacia el Banco Central, porque así lo llama su
+    contrato. No mezclarlos.
+
+    ### Sobre las rutas
+
+    El documento acordado entre los diez bancos sugiere rutas en inglés
+    (`/accounts/{cbu}/depositos`). Acá están en español y con nuestros identificadores,
+    porque ese estándar es una **sugerencia de comparabilidad**, no un contrato: cada
+    banco hostea su propia API. El contrato de verdad, el que sí es obligatorio, es el
+    del Banco Central.
+
+    ## Idempotencia
+
+    Los endpoints marcados con `Idempotency-Key` aceptan un UUID v4 por header. Si se
+    repite la misma clave sobre el mismo endpoint y usuario:
+
+    - misma petición → se devuelve la respuesta guardada, con `Idempotent-Replay: true`
+    - petición distinta → `422`
+    - la original sigue en curso → `409`
+
+    Es opt-in: sin el header, el endpoint funciona normalmente.
+
+servers:
+  - url: http://localhost:3001
+    description: Desarrollo local
+  - url: https://api.orbital.example/
+    description: Producción (a definir)
+
+security:
+  - ClerkJWT: []
+
+tags:
+  - name: Autenticación
+    description: Login, registro y perfil del usuario. Sesión manejada por Clerk.
+  - name: Cuentas
+    description: Cajas de ahorro en pesos y en dólares, con su saldo y movimientos.
+  - name: Transacciones
+    description: Transferencias, depósitos, extracciones y cambio de divisa.
+  - name: Destinatarios
+    description: Agenda de destinatarios frecuentes del cliente.
+  - name: Tarjetas
+    description: NUEVO en v1 — Emisión, autorizaciones, bloqueo y resumen.
+  - name: Préstamos
+    description: NUEVO en v1 — Simulación, solicitud, cuotas y precancelación.
+  - name: Inversiones
+    description: NUEVO en v1 — Plazos fijos.
+  - name: Catálogos
+    description: Tipos de cuenta, tipos de transacción y cotizaciones.
+
+components:
+  securitySchemes:
+    ClerkJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Token de sesión emitido por Clerk. El backend lo valida y resuelve el
+        `usuario` y su `persona` asociada. Todos los endpoints bajo `/api` lo
+        requieren, además de usuario activo y perfil completo.
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, default: 1 }
+      description: Página, empezando en 1.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      description: Cantidad de elementos por página.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, format: uuid }
+      description: |
+        UUID v4. Protege contra el doble envío: reintentar con la misma clave
+        devuelve la respuesta original en vez de ejecutar la operación otra vez.
+      example: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
+
+  responses:
+    NoAutorizado:
+      description: Falta el token, es inválido, o el usuario está inactivo.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: 'No autorizado.' }
+    Prohibido:
+      description: El usuario no tiene permiso, o el recurso pertenece a otra persona.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: 'No puedes operar sobre una cuenta que no te pertenece.' }
+    NoEncontrado:
+      description: El recurso no existe.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: 'No existe el recurso solicitado.' }
+    ErrorValidacion:
+      description: El cuerpo o los parámetros no pasaron la validación.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: 'Datos inválidos.'
+            details:
+              fieldErrors:
+                monto: ['El monto debe ser mayor a cero.']
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Mensaje legible. En producción los 5xx se reemplazan por uno genérico.
+          example: 'Saldo insuficiente.'
+        details:
+          type: object
+          nullable: true
+          description: |
+            Detalle adicional. Presente en errores de validación (con `fieldErrors`)
+            y en desarrollo. Nunca expone internos de la base en producción.
+      additionalProperties: false
+
+    Paginado:
+      type: object
+      description: Envoltorio de todos los listados paginados.
+      required: [page, limit, count, data]
+      properties:
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 20 }
+        count:
+          type: integer
+          description: Cantidad de elementos en **esta** página, no el total del recurso.
+          example: 20
+        data:
+          type: array
+          items: { type: object }
+
+    Moneda:
+      type: string
+      enum: [ARS, USD]
+      description: Moneda de la cuenta. La caja en pesos nace con la persona; la de dólares se abre aparte.
+      example: ARS
+
+    Monto:
+      type: number
+      format: double
+      description: |
+        Importe con 2 decimales. Se almacena como `NUMERIC(18,2)` y se calcula en
+        decimal exacto; se expone como número por comodidad del cliente, que sólo
+        lo formatea para mostrar.
+      example: 184500.20
+
+    Cbu:
+      type: string
+      minLength: 22
+      maxLength: 22
+      pattern: '^\d{22}$'
+      description: Clave Bancaria Uniforme. Cada cuenta tiene el suyo, así que la caja en pesos y la de dólares de una misma persona tienen CBU distinto.
+      example: '0060001948123456001608'
+
+    Cuenta:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        persona_id: { type: string, format: uuid }
+        tipo_cuenta_id: { type: string, format: uuid }
+        numero_cuenta: { type: string, example: '001948123456' }
+        cbu: { $ref: '#/components/schemas/Cbu' }
+        alias:
+          type: string
+          nullable: true
+          example: juan.perez.orbital
+        moneda: { $ref: '#/components/schemas/Moneda' }
+        saldo: { $ref: '#/components/schemas/Monto' }
+        activa: { type: boolean, example: true }
+        banco_central_registrada:
+          type: boolean
+          description: Si la cuenta ya está dada de alta en el Banco Central y puede operar entre bancos.
+          example: true
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        tipo_cuenta_nombre:
+          type: string
+          description: Sólo viene cuando la query hizo el JOIN.
+          example: Caja de Ahorro
+
+    Transaccion:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        tipo_transaccion_id: { type: string, format: uuid }
+        cuenta_origen_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: '`null` en un depósito en efectivo: el dinero no sale de ninguna cuenta.'
+        cuenta_destino_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: '`null` cuando el destino es de otro banco.'
+        cbu_origen: { type: string, nullable: true }
+        cbu_destino: { type: string, nullable: true }
+        monto: { $ref: '#/components/schemas/Monto' }
+        moneda: { $ref: '#/components/schemas/Moneda' }
+        descripcion: { type: string, nullable: true, example: Pago alquiler }
+        estado:
+          type: string
+          enum: [pendiente, completada, rechazada]
+          example: completada
+        canal:
+          type: string
+          nullable: true
+          enum: [local, interbancaria_saliente, interbancaria_entrante, deposito_efectivo, extraccion_efectivo, cambio_divisa]
+          description: Por dónde pasó la operación. Lo usa el frontend para elegir el ícono y el texto.
+          example: local
+        central_transaction_id:
+          type: string
+          nullable: true
+          description: Identificador que devolvió el Banco Central, si la operación pasó por él.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Destinatario:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        persona_id: { type: string, format: uuid }
+        nombre: { type: string, example: María García }
+        cbu_externo: { type: string, nullable: true }
+        alias: { type: string, nullable: true, example: maria.garcia.nodo }
+        banco_externo: { type: string, nullable: true, example: Banco Nodo }
+        created_at: { type: string, format: date-time }
+
+    Cotizacion:
+      type: object
+      description: Cotización tomada de DolarAPI, casa `oficial`, cacheada unos minutos.
+      properties:
+        moneda: { type: string, example: USD }
+        casa: { type: string, example: oficial }
+        compra:
+          type: number
+          description: Pesos que el banco paga por cada dólar que le compra al cliente.
+          example: 1465
+        venta:
+          type: number
+          description: Pesos que el cliente paga por cada dólar que le compra al banco.
+          example: 1515
+        fecha_actualizacion: { type: string, format: date-time }
+
+    Tarjeta:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        persona_id: { type: string, format: uuid }
+        tipo:
+          type: string
+          enum: [debito, credito]
+          example: credito
+        numero_enmascarado:
+          type: string
+          description: Sólo los últimos 4 dígitos. El número completo no se expone nunca.
+          example: '**** **** **** 4821'
+        cuenta_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Cuenta asociada. Obligatoria en débito, `null` en crédito.
+        limite:
+          allOf: [{ $ref: '#/components/schemas/Monto' }]
+          nullable: true
+          description: Sólo en crédito.
+        disponible:
+          allOf: [{ $ref: '#/components/schemas/Monto' }]
+          nullable: true
+          description: 'Límite menos el consumo del período. Sólo en crédito.'
+        estado:
+          type: string
+          enum: [activa, bloqueada, vencida]
+          example: activa
+        vencimiento: { type: string, example: '09/30' }
+        created_at: { type: string, format: date-time }
+
+    Autorizacion:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        tarjeta_id: { type: string, format: uuid }
+        comercio: { type: string, example: Supermercado Norte }
+        monto: { $ref: '#/components/schemas/Monto' }
+        cuotas: { type: integer, minimum: 1, example: 3 }
+        estado:
+          type: string
+          enum: [aprobada, rechazada]
+          example: aprobada
+        motivo_rechazo:
+          type: string
+          nullable: true
+          description: Presente sólo si fue rechazada.
+          example: Límite disponible insuficiente.
+        created_at: { type: string, format: date-time }
+
+    CuotaPrestamo:
+      type: object
+      description: Fila del cronograma de amortización, sistema francés.
+      properties:
+        numero: { type: integer, example: 1 }
+        vencimiento: { type: string, format: date, example: '2026-10-08' }
+        cuota: { $ref: '#/components/schemas/Monto' }
+        capital:
+          allOf: [{ $ref: '#/components/schemas/Monto' }]
+          description: Porción que amortiza capital.
+        interes:
+          allOf: [{ $ref: '#/components/schemas/Monto' }]
+          description: Porción de intereses, calculada sobre el saldo remanente.
+        saldo:
+          allOf: [{ $ref: '#/components/schemas/Monto' }]
+          description: Capital adeudado después de pagar esta cuota.
+        estado:
+          type: string
+          enum: [pendiente, pagada, en_mora]
+          description: Sólo en préstamos otorgados; ausente en las simulaciones.
+
+    Prestamo:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        persona_id: { type: string, format: uuid }
+        cuenta_id:
+          type: string
+          format: uuid
+          description: Cuenta donde se acreditó el capital y de donde se debitan las cuotas.
+        moneda: { $ref: '#/components/schemas/Moneda' }
+        capital: { $ref: '#/components/schemas/Monto' }
+        cuotas: { type: integer, example: 12 }
+        tna:
+          type: number
+          description: |
+            Tasa Nominal Anual **en porcentaje** (72 significa 72 %). Ojo: ArgentinaDatos
+            la publica como fracción decimal (0.72); el adapter la normaliza antes de llegar acá.
+          example: 72
+        tem:
+          type: number
+          description: Tasa Efectiva Mensual en porcentaje, `tna / 12`.
+          example: 6
+        cuota_mensual: { $ref: '#/components/schemas/Monto' }
+        total_a_pagar: { $ref: '#/components/schemas/Monto' }
+        total_intereses: { $ref: '#/components/schemas/Monto' }
+        cft:
+          type: number
+          description: Costo Financiero Total anual en porcentaje. Sin cargos extra coincide con la TEA.
+          example: 101.22
+        saldo_deuda: { $ref: '#/components/schemas/Monto' }
+        cuotas_pagadas: { type: integer, example: 1 }
+        estado:
+          type: string
+          enum: [vigente, cancelado, en_mora]
+          example: vigente
+        fecha_otorgamiento: { type: string, format: date }
+        cronograma:
+          type: array
+          items: { $ref: '#/components/schemas/CuotaPrestamo' }
+
+    PlazoFijo:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        persona_id: { type: string, format: uuid }
+        cuenta_id: { type: string, format: uuid }
+        moneda: { $ref: '#/components/schemas/Moneda' }
+        capital: { $ref: '#/components/schemas/Monto' }
+        dias: { type: integer, example: 30 }
+        tna:
+          type: number
+          description: TNA en porcentaje.
+          example: 58
+        interes: { $ref: '#/components/schemas/Monto' }
+        total:
+          allOf: [{ $ref: '#/components/schemas/Monto' }]
+          description: '`capital + interes`. Es lo que se acredita al vencimiento.'
+        tea:
+          type: number
+          description: Tasa Efectiva Anual equivalente, en porcentaje.
+          example: 76.23
+        fecha_constitucion: { type: string, format: date }
+        fecha_vencimiento: { type: string, format: date }
+        estado:
+          type: string
+          enum: [vigente, vencido, acreditado, cancelado_anticipado]
+          example: vigente
+
+paths:
+  # ─────────────────────────────── Cuentas ───────────────────────────────
+  /api/personas/{personaId}/cuentas:
+    get:
+      tags: [Cuentas]
+      summary: Listar las cuentas de una persona
+      description: |
+        Devuelve todas las cuentas del titular, en pesos y en dólares. Es la consulta
+        que arma el resumen del portal.
+
+        Un cliente sólo puede ver las suyas; los roles internos pueden ver las de
+        cualquiera.
+      parameters:
+        - name: personaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Lista de cuentas
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Cuenta' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /api/personas/{personaId}/cuentas/apertura:
+    post:
+      tags: [Cuentas]
+      summary: Abrir una caja de ahorro
+      description: |
+        Abre una caja de ahorro en la moneda pedida y la registra en el Banco Central
+        con `POST /accounts`, guardando el CBU que devuelve.
+
+        **Por qué se guarda el CBU localmente:** el Banco Central no tiene forma de
+        listar las cuentas de una persona, así que si lo perdemos el único modo de
+        recuperarlo es volver a llamar a `POST /accounts` con el mismo DNI y moneda.
+
+        Antes de abrir se consulta la central de deudores: **situación 3 o peor
+        rechaza la apertura**.
+      parameters:
+        - name: personaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [moneda]
+              properties:
+                moneda: { $ref: '#/components/schemas/Moneda' }
+                alias:
+                  type: string
+                  nullable: true
+                  description: Si se omite, se genera uno a partir del nombre.
+                  example: juan.perez.usd
+      responses:
+        '201':
+          description: Cuenta creada y registrada en el Banco Central.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cuenta' }
+        '200':
+          description: La persona ya tenía una cuenta en esa moneda. Se devuelve la existente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cuenta' }
+        '400': { $ref: '#/components/responses/ErrorValidacion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403':
+          description: |
+            Sin permiso sobre esa persona, **o** el titular está en situación 3 o peor
+            en la central de deudores.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                error: 'No se puede abrir la cuenta: el titular registra situación 4 en la central de deudores.'
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /api/cuentas/{cuentaId}/movimientos:
+    get:
+      tags: [Cuentas]
+      summary: Movimientos de una cuenta
+      description: Extracto paginado, del más reciente al más antiguo.
+      parameters:
+        - name: cuentaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Movimientos de la cuenta
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginado'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Transaccion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  # ──────────────────────────── Transacciones ────────────────────────────
+  /api/transacciones:
+    get:
+      tags: [Transacciones]
+      summary: Listar transacciones del usuario
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Transacciones visibles para el usuario autenticado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginado'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Transaccion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+
+  /api/transacciones/transferir:
+    post:
+      tags: [Transacciones]
+      summary: Transferir dinero
+      description: |
+        Transfiere a una cuenta de este banco o de otro. El destino se indica de una
+        de tres formas: `cuenta_destino_id`, `destinatario_id` o `cbu_destino`.
+
+        **Las dos cuentas tienen que ser de la misma moneda.** El Banco Central no
+        valida esto — su `POST /transactions` no tiene campo de moneda y movería el
+        importe tal cual — así que la validación la hacemos nosotros, resolviendo la
+        moneda de los dos CBU con `GET /accounts/{cbu}` antes de operar.
+
+        Para pasar de pesos a dólares está `/api/transacciones/cambio`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cuenta_origen_id, monto]
+              properties:
+                cuenta_origen_id: { type: string, format: uuid }
+                cuenta_destino_id: { type: string, format: uuid, nullable: true }
+                destinatario_id: { type: string, format: uuid, nullable: true }
+                cbu_destino: { type: string, nullable: true }
+                monto: { $ref: '#/components/schemas/Monto' }
+                descripcion: { type: string, nullable: true, maxLength: 140 }
+            examples:
+              porCbu:
+                summary: A un CBU de otro banco
+                value:
+                  cuenta_origen_id: 4b1c8e2a-0000-4000-8000-000000000001
+                  cbu_destino: '0020001125000001000107'
+                  monto: 1500
+                  descripcion: Pago alquiler
+              porDestinatario:
+                summary: A un destinatario de la agenda
+                value:
+                  cuenta_origen_id: 4b1c8e2a-0000-4000-8000-000000000001
+                  destinatario_id: 7c2d9f3b-0000-4000-8000-000000000002
+                  monto: 8000
+      responses:
+        '201':
+          description: Transferencia realizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaccion' }
+        '400':
+          description: Datos inválidos, mismo CBU de origen y destino, o **monedas distintas**.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                error: 'La cuenta de origen es ARS y la de destino es USD. No se puede transferir entre monedas distintas.'
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: Ya hay una operación en curso con esa `Idempotency-Key`.
+        '422':
+          description: Saldo insuficiente. Queda registrada como rechazada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 'Saldo insuficiente.' }
+
+  /api/transacciones/deposito:
+    post:
+      tags: [Transacciones]
+      summary: Depositar efectivo
+      description: 'Operación de sucursal. Sólo roles internos: admin, operador o tesorería.'
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cuenta_destino_id, monto]
+              properties:
+                cuenta_destino_id: { type: string, format: uuid }
+                monto: { $ref: '#/components/schemas/Monto' }
+                descripcion: { type: string, nullable: true, maxLength: 140 }
+      responses:
+        '201':
+          description: Depósito acreditado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaccion' }
+        '400': { $ref: '#/components/responses/ErrorValidacion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+
+  /api/transacciones/extraccion:
+    post:
+      tags: [Transacciones]
+      summary: Extraer efectivo
+      description: Debita de la cuenta y registra la extracción. Sólo roles internos.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cuenta_origen_id, monto]
+              properties:
+                cuenta_origen_id: { type: string, format: uuid }
+                monto: { $ref: '#/components/schemas/Monto' }
+                descripcion: { type: string, nullable: true, maxLength: 140 }
+      responses:
+        '201':
+          description: Extracción registrada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaccion' }
+        '400': { $ref: '#/components/responses/ErrorValidacion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '422':
+          description: Saldo insuficiente.
+
+  /api/transacciones/cambio:
+    post:
+      tags: [Transacciones]
+      summary: Comprar o vender dólares
+      description: |
+        Mueve dinero entre la caja en pesos y la caja en dólares **del mismo titular**.
+        Es la única operación que cruza monedas.
+
+        ```
+        compra:  cuenta ARS ──(paga a cotización venta)──► cuenta USD
+        venta:   cuenta USD ──(cobra a cotización compra)──► cuenta ARS
+        ```
+
+        La cotización sale de DolarAPI, casa `oficial`, en el momento de la operación.
+        El banco no la elige: se toma la vigente y se guarda en la transacción para
+        que el comprobante sea auditable.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operacion, cuenta_origen_id, cuenta_destino_id, monto]
+              properties:
+                operacion:
+                  type: string
+                  enum: [compra, venta]
+                  description: Visto desde el cliente. `compra` significa que el cliente compra dólares.
+                cuenta_origen_id: { type: string, format: uuid }
+                cuenta_destino_id: { type: string, format: uuid }
+                monto:
+                  allOf: [{ $ref: '#/components/schemas/Monto' }]
+                  description: Expresado en la moneda de la cuenta de origen.
+            example:
+              operacion: compra
+              cuenta_origen_id: 4b1c8e2a-0000-4000-8000-000000000001
+              cuenta_destino_id: 4b1c8e2a-0000-4000-8000-000000000002
+              monto: 151500
+      responses:
+        '201':
+          description: Cambio realizado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaccion: { $ref: '#/components/schemas/Transaccion' }
+                  monto_origen: { $ref: '#/components/schemas/Monto' }
+                  monto_destino: { $ref: '#/components/schemas/Monto' }
+                  cotizacion_aplicada:
+                    type: number
+                    example: 1515
+              example:
+                monto_origen: 151500
+                monto_destino: 100
+                cotizacion_aplicada: 1515
+        '400':
+          description: Las cuentas son de la misma moneda, o no pertenecen al mismo titular.
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '422':
+          description: Saldo insuficiente.
+
+  /api/transacciones/destinatario/resolver:
+    get:
+      tags: [Transacciones]
+      summary: Resolver un alias o CBU antes de transferir
+      description: |
+        Busca el titular de un alias o CBU en el Banco Central, para mostrarle al
+        cliente a quién le va a transferir antes de confirmar. Devuelve también la
+        **moneda** de la cuenta, que es lo que permite validar la transferencia.
+      parameters:
+        - name: alias
+          in: query
+          schema: { type: string }
+          description: Uno de los dos, alias o cbu.
+        - name: cbu
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Titular encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cbu: { $ref: '#/components/schemas/Cbu' }
+                  alias: { type: string, nullable: true }
+                  nombre: { type: string, example: María }
+                  apellido: { type: string, example: García }
+                  moneda: { $ref: '#/components/schemas/Moneda' }
+                  banco: { type: string, example: Banco Nodo }
+        '400':
+          description: No se indicó ni alias ni CBU.
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '404':
+          description: El alias o CBU no existe en el sistema.
+
+  # ───────────────────────────── Tarjetas ─────────────────────────────
+  /api/tarjetas:
+    post:
+      tags: [Tarjetas]
+      summary: Emitir una tarjeta
+      description: |
+        Emite una tarjeta de débito, atada a una cuenta, o de crédito, con límite
+        propio. El número completo no se devuelve nunca: sólo el enmascarado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [persona_id, tipo]
+              properties:
+                persona_id: { type: string, format: uuid }
+                tipo: { type: string, enum: [debito, credito] }
+                cuenta_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Obligatorio si el tipo es `debito`.
+                limite:
+                  allOf: [{ $ref: '#/components/schemas/Monto' }]
+                  nullable: true
+                  description: Obligatorio si el tipo es `credito`.
+            examples:
+              debito:
+                value: { persona_id: 9a1b2c3d-0000-4000-8000-000000000010, tipo: debito, cuenta_id: 4b1c8e2a-0000-4000-8000-000000000001 }
+              credito:
+                value: { persona_id: 9a1b2c3d-0000-4000-8000-000000000010, tipo: credito, limite: 500000 }
+      responses:
+        '201':
+          description: Tarjeta emitida.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tarjeta' }
+        '400':
+          description: Falta `cuenta_id` en débito, o `limite` en crédito.
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+
+  /api/personas/{personaId}/tarjetas:
+    get:
+      tags: [Tarjetas]
+      summary: Listar las tarjetas de una persona
+      parameters:
+        - name: personaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Tarjetas del titular.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Tarjeta' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+
+  /api/tarjetas/{tarjetaId}/autorizaciones:
+    post:
+      tags: [Tarjetas]
+      summary: Autorizar un consumo
+      description: |
+        Simula la autorización en tiempo real de una compra. En débito valida el saldo
+        de la cuenta asociada; en crédito, el límite disponible. Siempre queda
+        registrada, aprobada o rechazada.
+      parameters:
+        - name: tarjetaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comercio, monto]
+              properties:
+                comercio: { type: string, example: Supermercado Norte }
+                monto: { $ref: '#/components/schemas/Monto' }
+                cuotas: { type: integer, minimum: 1, default: 1, example: 3 }
+      responses:
+        '201':
+          description: Consumo aprobado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Autorizacion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: La tarjeta está bloqueada o vencida.
+        '422':
+          description: Saldo o límite insuficiente. La autorización queda registrada como rechazada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Autorizacion' }
+              example:
+                estado: rechazada
+                motivo_rechazo: Límite disponible insuficiente.
+                monto: 90000
+
+  /api/tarjetas/{tarjetaId}/bloqueo:
+    post:
+      tags: [Tarjetas]
+      summary: Bloquear o desbloquear una tarjeta
+      description: |
+        Cambia el estado de la tarjeta. Es la acción típica de "perdí la tarjeta".
+
+        **El asistente con IA no puede ejecutar esto**: es de solo lectura y deriva
+        al cliente a la app o a un humano.
+      parameters:
+        - name: tarjetaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accion]
+              properties:
+                accion: { type: string, enum: [bloquear, desbloquear] }
+      responses:
+        '200':
+          description: Estado actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tarjeta' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /api/tarjetas/{tarjetaId}/resumen:
+    get:
+      tags: [Tarjetas]
+      summary: Resumen de cuenta
+      description: Sólo para tarjetas de crédito.
+      parameters:
+        - name: tarjetaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: periodo
+          in: query
+          required: false
+          schema: { type: string, example: '2026-09' }
+          description: Mes en formato `YYYY-MM`. Por defecto, el actual.
+      responses:
+        '200':
+          description: Resumen del período.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  periodo: { type: string, example: '2026-09' }
+                  vencimiento: { type: string, format: date, example: '2026-10-10' }
+                  total_a_pagar: { $ref: '#/components/schemas/Monto' }
+                  pago_minimo: { $ref: '#/components/schemas/Monto' }
+                  cft: { type: number, example: 101.22 }
+                  consumos:
+                    type: array
+                    items: { $ref: '#/components/schemas/Autorizacion' }
+        '400':
+          description: La tarjeta es de débito y no tiene resumen.
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  # ───────────────────────────── Préstamos ─────────────────────────────
+  /api/prestamos/simulaciones:
+    post:
+      tags: [Préstamos]
+      summary: Simular un préstamo
+      description: |
+        Calcula la cuota y el cronograma completo **sin registrar nada**.
+
+        **Método acordado con los otros bancos — sistema francés:**
+
+        ```
+        tem   = tna / 12 / 100
+        cuota = capital × tem / (1 − (1 + tem)^−cuotas)
+        ```
+
+        - Redondeo a 2 decimales, ROUND_HALF_UP.
+        - El interés de cada cuota se calcula sobre el saldo remanente.
+        - La **última cuota absorbe el residuo** para que el saldo cierre exacto en 0.
+
+        Si se omite `tna`, se usa la de referencia de ArgentinaDatos, ya normalizada
+        a porcentaje.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capital, cuotas]
+              properties:
+                capital: { $ref: '#/components/schemas/Monto' }
+                cuotas: { type: integer, minimum: 1, maximum: 72, example: 12 }
+                tna: { type: number, nullable: true, example: 72 }
+                moneda: { $ref: '#/components/schemas/Moneda' }
+            example: { capital: 1000000, cuotas: 12, tna: 72 }
+      responses:
+        '200':
+          description: Simulación calculada.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  capital: { $ref: '#/components/schemas/Monto' }
+                  cuotas: { type: integer }
+                  tna: { type: number }
+                  tem: { type: number }
+                  cuota_mensual: { $ref: '#/components/schemas/Monto' }
+                  total_a_pagar: { $ref: '#/components/schemas/Monto' }
+                  total_intereses: { $ref: '#/components/schemas/Monto' }
+                  cft: { type: number }
+                  cronograma:
+                    type: array
+                    items: { $ref: '#/components/schemas/CuotaPrestamo' }
+              example:
+                capital: 1000000
+                cuotas: 12
+                tna: 72
+                tem: 6
+                cuota_mensual: 119277.03
+                total_a_pagar: 1431324.36
+                total_intereses: 431324.36
+                cft: 101.22
+                cronograma:
+                  - { numero: 1, cuota: 119277.03, capital: 59277.03, interes: 60000, saldo: 940722.97 }
+                  - { numero: 2, cuota: 119277.03, capital: 62833.65, interes: 56443.38, saldo: 877889.32 }
+        '400': { $ref: '#/components/responses/ErrorValidacion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+
+  /api/prestamos:
+    post:
+      tags: [Préstamos]
+      summary: Solicitar un préstamo
+      description: |
+        Otorga el préstamo, acredita el capital en la cuenta indicada y **lo informa
+        al Banco Central** con `POST /central-deudores`, para que el resto del sistema
+        financiero lo vea.
+
+        Antes de otorgar se consulta la central de deudores: **situación 3 o peor
+        rechaza la solicitud**, igual que en la apertura de cuenta.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cuenta_id, capital, cuotas]
+              properties:
+                cuenta_id:
+                  type: string
+                  format: uuid
+                  description: Dónde se acredita el capital. Define la moneda del préstamo.
+                capital: { $ref: '#/components/schemas/Monto' }
+                cuotas: { type: integer, minimum: 1, maximum: 72 }
+                tna: { type: number, nullable: true }
+      responses:
+        '201':
+          description: Préstamo otorgado y acreditado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Prestamo' }
+        '400': { $ref: '#/components/responses/ErrorValidacion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403':
+          description: Sin permiso, **o** el titular está en situación 3 o peor.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                error: 'No se puede otorgar el préstamo: el titular registra situación 4 en la central de deudores.'
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+    get:
+      tags: [Préstamos]
+      summary: Listar préstamos
+      parameters:
+        - name: estado
+          in: query
+          schema: { type: string, enum: [vigente, cancelado, en_mora] }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Préstamos visibles para el usuario. El cronograma se omite acá.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginado'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Prestamo' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+
+  /api/prestamos/{prestamoId}:
+    get:
+      tags: [Préstamos]
+      summary: Detalle de un préstamo
+      description: Incluye el cronograma completo con el estado de cada cuota.
+      parameters:
+        - name: prestamoId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Préstamo encontrado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Prestamo' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /api/prestamos/{prestamoId}/pagos:
+    post:
+      tags: [Préstamos]
+      summary: Pagar la próxima cuota
+      description: |
+        Debita la cuota de la cuenta del préstamo y la marca como pagada.
+
+        **Reglas:** las cuotas se pagan en orden, no se aceptan pagos parciales, y
+        una cuota entra en mora a los 31 días corridos de su vencimiento. Al pagar la
+        última, el préstamo pasa a `cancelado` y se actualiza el informe en el Banco
+        Central.
+      parameters:
+        - name: prestamoId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Cuota pagada.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cuota: { $ref: '#/components/schemas/CuotaPrestamo' }
+                  cuotas_pendientes: { type: integer, example: 11 }
+                  saldo_deuda: { $ref: '#/components/schemas/Monto' }
+                  estado_prestamo: { type: string, enum: [vigente, cancelado, en_mora] }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: El préstamo ya está cancelado.
+        '422':
+          description: Saldo insuficiente en la cuenta.
+
+  /api/prestamos/{prestamoId}/precancelacion:
+    post:
+      tags: [Préstamos]
+      summary: Precancelar el préstamo
+      description: |
+        Cancela la deuda antes de tiempo pagando el **capital adeudado**, sin los
+        intereses de las cuotas futuras. El préstamo pasa a `cancelado` y se actualiza
+        el informe en el Banco Central.
+      parameters:
+        - name: prestamoId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Préstamo precancelado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Prestamo' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: El préstamo ya estaba cancelado.
+        '422':
+          description: Saldo insuficiente para cubrir el capital adeudado.
+
+  # ──────────────────────────── Inversiones ────────────────────────────
+  /api/plazos-fijos/simulaciones:
+    post:
+      tags: [Inversiones]
+      summary: Simular un plazo fijo
+      description: |
+        **Método acordado — interés simple, base 365:**
+
+        ```
+        interes = capital × (tna / 100) × (dias / 365)
+        total   = capital + interes
+        ```
+
+        Redondeo a 2 decimales, ROUND_HALF_UP. Si se omite `tna`, se toma la de
+        referencia de ArgentinaDatos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capital, dias]
+              properties:
+                capital: { $ref: '#/components/schemas/Monto' }
+                dias: { type: integer, minimum: 30, maximum: 365, example: 30 }
+                tna: { type: number, nullable: true, example: 58 }
+            example: { capital: 500000, dias: 30, tna: 58 }
+      responses:
+        '200':
+          description: Simulación calculada.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  capital: { $ref: '#/components/schemas/Monto' }
+                  dias: { type: integer }
+                  tna: { type: number }
+                  interes: { $ref: '#/components/schemas/Monto' }
+                  total: { $ref: '#/components/schemas/Monto' }
+                  tea: { type: number }
+              example: { capital: 500000, dias: 30, tna: 58, interes: 23835.62, total: 523835.62, tea: 76.23 }
+        '400': { $ref: '#/components/responses/ErrorValidacion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+
+  /api/plazos-fijos:
+    post:
+      tags: [Inversiones]
+      summary: Constituir un plazo fijo
+      description: Debita el capital de la cuenta y lo inmoviliza hasta el vencimiento.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cuenta_id, capital, dias]
+              properties:
+                cuenta_id: { type: string, format: uuid }
+                capital: { $ref: '#/components/schemas/Monto' }
+                dias: { type: integer, minimum: 30, maximum: 365 }
+                tna: { type: number, nullable: true }
+      responses:
+        '201':
+          description: Plazo fijo constituido.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlazoFijo' }
+        '400': { $ref: '#/components/responses/ErrorValidacion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '422':
+          description: Saldo insuficiente.
+
+    get:
+      tags: [Inversiones]
+      summary: Listar plazos fijos
+      parameters:
+        - name: estado
+          in: query
+          schema: { type: string, enum: [vigente, vencido, acreditado, cancelado_anticipado] }
+          description: '`vencido` es el filtro que dice qué hay que acreditar hoy.'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Plazos fijos visibles para el usuario.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginado'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/PlazoFijo' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+
+  /api/plazos-fijos/{plazoFijoId}/acreditacion:
+    post:
+      tags: [Inversiones]
+      summary: Acreditar al vencimiento o rescatar antes
+      description: |
+        Cierra el plazo fijo y acredita el dinero en la cuenta.
+
+        | Caso | Interés reconocido |
+        |---|---|
+        | Al vencimiento | El pactado: `total` |
+        | Rescate anticipado | Sólo el de los días transcurridos, a tasa de caja de ahorro |
+      parameters:
+        - name: plazoFijoId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                anticipada: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Plazo fijo cerrado y acreditado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plazo_fijo: { $ref: '#/components/schemas/PlazoFijo' }
+                  total_acreditado: { $ref: '#/components/schemas/Monto' }
+                  dias_transcurridos: { type: integer, example: 30 }
+        '400':
+          description: Todavía no venció y no se pidió rescate anticipado.
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: El plazo fijo ya estaba cerrado.
+
+  # ───────────────────────────── Catálogos ─────────────────────────────
+  /api/catalogos/cotizacion:
+    get:
+      tags: [Catálogos]
+      summary: Cotización del dólar
+      description: |
+        Cotización vigente que usa el banco para el cambio de divisa. Sale de DolarAPI,
+        casa `oficial`, con caché de unos minutos y valor de respaldo si la API externa
+        se cae.
+      responses:
+        '200':
+          description: Cotización vigente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cotizacion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '503':
+          description: La API externa no responde y no hay valor cacheado.
+
+  /api/catalogos/tasas:
+    get:
+      tags: [Catálogos]
+      summary: Tasas de referencia
+      description: |
+        Tasas que el banco ofrece, derivadas de ArgentinaDatos.
+
+        **Ojo:** ArgentinaDatos publica la TNA como fracción decimal (`0.19` para
+        19 %). Acá se devuelve ya normalizada **en porcentaje**, que es como la
+        esperan los cálculos.
+      responses:
+        '200':
+          description: Tasas vigentes.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prestamos:
+                    type: object
+                    properties:
+                      tna: { type: number, example: 72 }
+                  plazo_fijo:
+                    type: object
+                    properties:
+                      tna: { type: number, example: 58 }
+                  actualizado_al: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/NoAutorizado' }

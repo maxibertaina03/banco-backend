@@ -70,10 +70,14 @@ Las fases 0 a 2 son de a uno; de la 3 en adelante se trabaja en paralelo.
 ### Fase 1 — El contrato primero *(Maxi + Gonza, juntos)*
 Escribir el OpenAPI de nuestro banco **antes** de implementar. Es lo único que
 permite avanzar en paralelo sin bloquearse.
-- `docs/openapi-banco-orbital.yaml` con los endpoints de la **v1**: cuentas,
-  tarjetas, préstamos y plazos fijos. Más `openapi-banco-proveedores.yaml`, aparte
-- Auth con Clerk (`http bearer`), errores `{ error }`, paginación `page`/`limit`
-- `Idempotency-Key` declarado en todo endpoint que mueva plata
+- [x] `docs/openapi-banco-orbital.yaml` — 24 paths, 26 operaciones, 14 schemas.
+      Cuentas, transacciones, tarjetas, préstamos, plazos fijos y catálogos
+- [x] `docs/openapi-banco-proveedores.yaml` — 5 paths. Servicios y recargas
+- [x] Auth con Clerk, errores `{ error }`, paginación `page`/`limit`,
+      `Idempotency-Key` en todo endpoint que mueve plata
+- [x] Los dos validan como OpenAPI 3.0.3 con `openapi-spec-validator`
+- [ ] **Que Gonza los revise y apruebe** antes de implementar
+- [ ] Llevar al grupo el tema de las monedas en `POST /transactions`
 - Nombres según el glosario; `monto` interno vs `importe` hacia el Central
 - Importes como `number`, consistente con los DTOs y con el Central
 - [x] **APIs públicas externas probadas** — ver resultados abajo
