@@ -14,6 +14,8 @@ function aCuentaPublica(row) {
     cbu: row.cbu,
     alias: row.alias ?? null,
     saldo: aNumeroDeApi(row.saldo),
+    moneda: row.moneda ?? 'ARS',
+    principal: row.principal ?? false,
     activa: row.activa,
     banco_central_registrada: row.banco_central_registrada,
     created_at: row.created_at,

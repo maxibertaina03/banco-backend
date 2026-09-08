@@ -225,6 +225,13 @@ components:
           example: juan.perez.orbital
         moneda: { $ref: '#/components/schemas/Moneda' }
         saldo: { $ref: '#/components/schemas/Monto' }
+        principal:
+          type: boolean
+          description: |
+            La cuenta que nació junto con la persona, siempre en pesos. Es la que el
+            Banco Central usa como identidad del titular en sus endpoints heredados.
+            Hay exactamente una por persona.
+          example: true
         activa: { type: boolean, example: true }
         banco_central_registrada:
           type: boolean

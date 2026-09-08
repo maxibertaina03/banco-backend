@@ -348,6 +348,92 @@ async function listarTransacciones({ environment, minutes } = {}) {
   });
 }
 
+// ── Cuentas multi-moneda y central de deudores ──────────────────────────────
+// Las seis rutas que el Banco Central publicó en agosto de 2026. Los nombres de
+// ruta y de campo van en INGLÉS a propósito: son su contrato, no el nuestro
+// (ver docs/GLOSARIO.md).
+//
+// Verificado contra el ambiente `test` el 8/9/2026; donde el comportamiento real
+// difiere de su documentación, está anotado.
+
+/**
+ * Abre una caja de ahorro en el Banco Central y devuelve su CBU.
+ *
+ * Ojo con los códigos, porque no son los que uno espera:
+ *  - `moneda: 'USD'` la primera vez → 201 con CBU nuevo.
+ *  - `moneda: 'USD'` repetido → 200 con la cuenta existente. Es idempotente, y
+ *    es el ÚNICO modo de recuperar el CBU si lo perdimos: no hay endpoint que
+ *    liste las cuentas de una persona.
+ *  - `moneda: 'ARS'` → siempre 200. La caja en pesos nace con `POST /persons`,
+ *    así que este endpoint nunca la crea.
+ */
+async function abrirCuentaCentral({ dni, moneda, environment } = {}) {
+  return requestWithApiKey('post', '/accounts', {
+    data: { dni, moneda },
+    environment,
+    includeResponseMeta: true,
+  });
+}
+
+/**
+ * Resuelve un CBU cualquiera: devuelve titular, banco, moneda y saldo.
+ *
+ * La documentación del Central dice que sólo encuentra cuentas en monedas
+ * distintas de ARS. **Es falso**: probado contra `test`, resuelve las dos y
+ * siempre trae `moneda`. Por eso este es el único endpoint que hace falta para
+ * saber de qué moneda es un CBU, y no hace falta el fallback a `/persons/{cbu}`
+ * que estaba planeado.
+ */
+async function buscarCuentaPorCbu(cbu, environment) {
+  return requestWithApiKey('get', `/accounts/${encodeURIComponent(cbu)}`, { environment });
+}
+
+/** Busca una cuenta por su alias. El alias es único en todo el sistema. */
+async function buscarCuentaPorAlias(alias, environment) {
+  return requestWithApiKey('get', `/accounts/alias/${encodeURIComponent(alias)}`, { environment });
+}
+
+/** Asigna o cambia el alias de una cuenta. Cada cuenta tiene el suyo. */
+async function asignarAliasDeCuenta(cbu, alias, environment) {
+  return requestWithApiKey('put', `/accounts/${encodeURIComponent(cbu)}/alias`, {
+    data: { alias },
+    environment,
+  });
+}
+
+/**
+ * Informa al Banco Central la deuda de un titular con NUESTRO banco.
+ *
+ * Es lo que hace que la central de deudores sirva: la consulta junta lo que
+ * informó cada banco, así que si no informamos, nuestros préstamos no existen
+ * para el resto del sistema.
+ *
+ * Hay un solo informe activo por DNI: volver a llamar actualiza monto y
+ * situación en vez de duplicar (201 la primera vez, 200 las siguientes). La
+ * `entidad` la pone el Central a partir de nuestra API key, no se puede informar
+ * en nombre de otro.
+ */
+async function informarDeuda({ dni, monto, situacion, environment } = {}) {
+  return requestWithApiKey('post', '/central-deudores', {
+    data: { dni, monto, situacion },
+    environment,
+    includeResponseMeta: true,
+  });
+}
+
+/**
+ * Situación crediticia consolidada de un titular, sumando lo que informó cada
+ * banco. La `situacion` que devuelve es la PEOR de todas sus deudas.
+ *
+ * Su documentación dice que devuelve 404 si el DNI no figura. **No es así**:
+ * probado contra `test`, para un DNI sin deudas contesta 200 con
+ * `situacion: 1` y `deudas: []`. O sea que no se puede distinguir "no existe"
+ * de "está al día", pero da igual porque la decisión se toma sobre `situacion`.
+ */
+async function consultarSituacionCrediticia(dni, environment) {
+  return requestWithApiKey('get', `/central-deudores/${encodeURIComponent(dni)}`, { environment });
+}
+
 async function listarCuentasASincronizar({ environment, limit = DEFAULT_SYNC_LIMIT } = {}) {
   normalizeEnvironment(environment);
 
@@ -638,7 +724,12 @@ async function saveBankRegistration(centralResponse) {
 }
 
 module.exports = {
+  abrirCuentaCentral,
+  asignarAliasDeCuenta,
   assignAlias,
+  buscarCuentaPorAlias,
+  buscarCuentaPorCbu,
+  consultarSituacionCrediticia,
   crearTransaccion,
   extractCentralCbu,
   extractCentralAlias,
@@ -648,6 +739,7 @@ module.exports = {
   getBankByCode,
   getConfig,
   getLocalRegistration,
+  informarDeuda,
   listBanks,
   listarCuentasASincronizar,
   listarTransacciones,

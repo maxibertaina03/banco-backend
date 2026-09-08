@@ -124,6 +124,12 @@ model Cuenta {
   cbu                     String   @unique
   alias                   String?  @unique
   saldo                   Decimal  @default(0) @map("saldo") @db.Decimal(18, 2)
+  // Moneda de la cuenta. La caja en ARS nace con la persona; la de USD se abre
+  // aparte con POST /accounts del Banco Central y tiene su propio CBU y alias.
+  moneda                  String   @default("ARS") @db.VarChar(3)
+  // La cuenta que nació junto con la persona. Los endpoints heredados del
+  // Banco Central la usan como identidad de la persona.
+  principal               Boolean  @default(false)
   activa                  Boolean  @default(true)
   bancoCentralRegistrada  Boolean  @default(false) @map("banco_central_registrada")
   createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -138,6 +144,7 @@ model Cuenta {
   @@index([tipoCuentaId])
   @@index([alias])
   @@index([cbu])
+  @@index([personaId, moneda])
   @@map("cuentas")
 }
 
