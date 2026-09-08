@@ -7,7 +7,8 @@ frontend apunta a esta carpeta.
 | Documento | Qué es |
 |---|---|
 | [GLOSARIO.md](GLOSARIO.md) | **Leer antes de escribir código.** Un nombre por concepto: es el contrato de nomenclatura del sistema |
-| [PLAN.md](PLAN.md) | Plan de trabajo por fases y reparto entre Maxi y Gonza |
+| [PLAN.md](PLAN.md) | Plan de trabajo por fases, decisiones tomadas y reparto. **Texto canónico** |
+| [plan.html](plan.html) | Fuente de la versión visual del plan, la que se comparte como página |
 | [CHANGELOG.md](CHANGELOG.md) | Historial de cambios del proyecto |
 | [entregas.md](entregas.md) | Seguimiento de entregas de la cursada |
 | [GUIA_RAPIDA.md](GUIA_RAPIDA.md) | Cómo levantar el proyecto |
