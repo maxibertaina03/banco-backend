@@ -70,7 +70,10 @@ Las fases 0 a 2 son de a uno; de la 3 en adelante se trabaja en paralelo.
 ### Fase 1 — El contrato primero *(Maxi + Gonza, juntos)*
 Escribir el OpenAPI de nuestro banco **antes** de implementar. Es lo único que
 permite avanzar en paralelo sin bloquearse.
-- `docs/openapi-banco-orbital.yaml` con los endpoints del estándar interno
+- `docs/openapi-banco-orbital.yaml` con los endpoints de la **v1**: cuentas,
+  tarjetas, préstamos y plazos fijos. Más `openapi-banco-proveedores.yaml`, aparte
+- Auth con Clerk (`http bearer`), errores `{ error }`, paginación `page`/`limit`
+- `Idempotency-Key` declarado en todo endpoint que mueva plata
 - Nombres según el glosario; `monto` interno vs `importe` hacia el Central
 - Importes como `number`, consistente con los DTOs y con el Central
 - [x] **APIs públicas externas probadas** — ver resultados abajo
@@ -150,11 +153,12 @@ Bloquea todo lo demás.
 - Resolver la moneda de un CBU con `GET /accounts/{cbu}`, que sirve para las dos
   monedas (verificado). No hace falta el fallback que estaba planeado
 - Adapter de APIs externas en `src/modules/mercado/` con caché TTL y timeout
-- Consultar `GET /central-deudores/{dni}` en el alta y bloquear de situación 3 en adelante
+- Una función de chequeo crediticio contra `GET /central-deudores/{dni}`, usada **en el alta y al otorgar préstamos**: situación 3 o peor bloquea las dos cosas
 
 ### Fase 3 — Cuentas y cambio de divisa
-Depósitos, extracciones, movimientos, compra/venta de dólares a cotización de
-DolarAPI, y **validación de moneda en toda transferencia** ya que el Central no la hace.
+Depósitos, extracciones, movimientos y compra/venta de dólares a la cotización
+**`oficial` de DolarAPI**, más **validación de moneda en toda transferencia** ya que
+el Central no la hace. Todo con `Idempotency-Key`.
 
 ### Fase 4 — Tarjetas
 Emisión débito/crédito, autorización de consumos, bloqueo, resumen mensual con CFT.
@@ -181,10 +185,18 @@ nueva desde `main` y se re-cablean. Detalle que rompe si se pasa por alto:
 `chatbot-router.js` hace `require('../middlewares/clerk-auth')` como default,
 pero en `main` ese módulo exporta un objeto — va con destructuring.
 
+**El asistente es de solo lectura.** Responde sobre el saldo, los movimientos, si el
+cliente califica para un préstamo y sus propios datos. **No ejecuta ninguna acción**,
+ni siquiera bloquear una tarjeta: todo lo que sea operar se deriva a los canales del
+banco. Eso saca de la mesa el riesgo más grande de un asistente con IA y hace que la
+fase sea bastante más corta.
+
 Queda pendiente de la fase:
 - Portar y renombrar según el glosario
+- Darle acceso de lectura a saldo, movimientos y elegibilidad crediticia, siempre
+  **acotado al cliente autenticado**. Es la regla que hay que testear explícitamente:
+  que no pueda contestar sobre otra persona aunque se lo pidan
 - Reportes: resumen de gastos por categoría y exportación de movimientos
-- Definir qué acciones puede ejecutar solo. Empezar con bloquear tarjeta
 
 ---
 
@@ -222,6 +234,38 @@ banco consume por HTTP como si fueran externos de verdad.
 
 El adapter de `src/modules/mercado/` termina siendo la única puerta de entrada a
 datos de afuera, sean APIs reales (DolarAPI, ArgentinaDatos) o nuestros mocks.
+
+---
+
+## Decisiones tomadas (Maxi + Gonza)
+
+Cerradas en conjunto. Si alguna cambia, se actualiza acá primero y después el código.
+
+| # | Decisión | Qué implica |
+|---|---|---|
+| 1 | **v1 = cuentas, tarjetas, préstamos y plazos fijos.** Seguros, CEDEARs y reservas van a v2 | El OpenAPI de la fase 1 sólo cubre la v1 |
+| 2 | **Clerk sigue siendo la autenticación** | `securityScheme: http bearer` con el JWT de Clerk. Sin cambios en el backend |
+| 3 | **Formato de error igual al del Central**: `{ error }` | **No requiere trabajo**: el Central usa `{ error }` en errores y `message` sólo en confirmaciones de éxito, y nuestro `error-handler` ya hace lo mismo. Queda descartado el campo `codigo` que se había propuesto |
+| 4 | **Idempotencia en todo lo que mueve plata** | El middleware ya existe. Se suma `Idempotency-Key` a pagos de cuota, compra/venta de dólares, autorizaciones de tarjeta, depósitos y extracciones |
+| 5 | **Paginación `page`/`limit`** con `{page, limit, count, data}` | Se mantiene lo que ya hay. Sin cursores |
+| 6 | **`banco-proveedores` con API key fija** | Key en `.env`, consumible en cualquier momento. No simula caídas por ahora |
+| 7 | **Situación 3 o peor bloquea todo**: alta de cuenta y otorgamiento de préstamos | Una sola función de chequeo, usada en los dos lugares |
+| 8 | **Cotización: DolarAPI, casa `oficial`** | Es una constante del adapter. Cambiarla a `blue` o `mayorista` es una línea |
+| 9 | **Gemini con la cuenta gratuita del equipo** | `GEMINI_API_KEY` en `.env`, nunca commiteada. El plan gratuito tiene límite de pedidos: el rate limit de 30 cada 15 minutos que ya trae el chatbot ayuda a no agotarlo |
+| 10 | **El asistente es de SOLO LECTURA** | Responde sobre saldo, movimientos, si califica para un préstamo y datos del cliente autenticado. **No ejecuta ninguna acción**, ni siquiera bloquear una tarjeta. Todo lo que sea operar se deriva a los canales del banco |
+
+### Lo único que queda abierto
+
+**Cada cuánto se actualiza la situación de un deudor.** Informar al otorgar el préstamo
+está claro; lo que falta es qué dispara la actualización cuando el cliente entra en mora.
+Sin algo periódico, la mora nunca llega al Central. Tres opciones, para decidir antes de
+la fase 5:
+
+- Al registrar cada pago de cuota, recalcular y reinformar. Simple, sin infraestructura,
+  pero no detecta al que **deja** de pagar, que es justamente el caso que importa.
+- Un endpoint interno que recorra los préstamos vencidos, disparado a mano o por cron
+  externo. Es lo que ya se hace con la limpieza de `idempotency_keys`.
+- Un job en el arranque del server con `setInterval`. El más fácil y el más frágil.
 
 ---
 
