@@ -164,7 +164,8 @@ Esta es la frontera entre nuestro código y el mundo. Tocar algo de esta lista r
 | **Estándar HTTP** | header `Idempotency-Key`, tabla `idempotency_keys`, `endpoint` | Nombre estandarizado del mecanismo |
 | **[components/ui/](banco-frontend/src/components/ui/)** | 46 archivos, 5.122 líneas de shadcn/ui | Código vendorizado que se resincroniza desde upstream: cualquier renombre se pierde en la próxima actualización |
 | **Base de datos** | tablas y columnas | Ya están en español. Renombrarlas exige migración y no aporta nada |
-| **Rutas del API** | `/api/personas`, `/api/cuentas` | Ya están en español. Única excepción: `/api/central-bank` → `/api/banco-central`, y queda para una fase aparte porque rompe clientes |
+| **Rutas del API** | `/api/personas`, `/api/cuentas` | Ya están en español |
+| **Todo lo que toca al Banco Central** | `/api/central-bank`, `bankCode`, `cbuOrigen`, `saldoOrigen`, `POST /accounts` | **Se queda en inglés a propósito.** Decisión de equipo: el contrato lo define su API, y traducir de este lado sólo agrega una capa de traducción que confunde al depurar. Si el Central lo llama `accounts`, nosotros también |
 | **Config de tooling** | claves de `package.json`, `vite.config.ts`, `vitest.config.js` | Las define la herramienta |
 
 ---
@@ -187,7 +188,7 @@ Orden sugerido, del más aislado al más transversal:
 | 2 | `Account` → `cuenta` | Grande pero muy mecánico |
 | 3 | `Transaction` / `Transfer` | Requiere aplicar la distinción de §3 |
 | 4 | `User` / `Role` / `Audit` | Tocan auth y permisos |
-| 5 | `Bank` / `Sync` | Módulo de Banco Central |
+| 5 | `Bank` / `Sync` | Módulo de Banco Central. **Ojo:** sólo se renombra lo que es nuestro; los campos de su contrato (`bankCode`, `cbuOrigen`) no se tocan |
 | 6 | Verbos sueltos | Barrido final de lo que quedó |
 
 La red de seguridad son los **139 tests** del backend y el build de Vite en el frontend. Nada de esto cambia comportamiento: si un test se pone en rojo, es un error de renombre, no un cambio de contrato.

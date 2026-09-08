@@ -76,7 +76,7 @@ permite avanzar en paralelo sin bloquearse.
 - [x] Auth con Clerk, errores `{ error }`, paginación `page`/`limit`,
       `Idempotency-Key` en todo endpoint que mueve plata
 - [x] Los dos validan como OpenAPI 3.0.3 con `openapi-spec-validator`
-- [ ] **Que Gonza los revise y apruebe** antes de implementar
+- [x] **Gonza los revisó y aprobó** (8 sep 2026)
 - [ ] Llevar al grupo el tema de las monedas en `POST /transactions`
 - Nombres según el glosario; `monto` interno vs `importe` hacia el Central
 - Importes como `number`, consistente con los DTOs y con el Central

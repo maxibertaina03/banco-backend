@@ -44,11 +44,15 @@ info:
 
     ### Sobre las rutas
 
-    El documento acordado entre los diez bancos sugiere rutas en inglés
-    (`/accounts/{cbu}/depositos`). Acá están en español y con nuestros identificadores,
-    porque ese estándar es una **sugerencia de comparabilidad**, no un contrato: cada
-    banco hostea su propia API. El contrato de verdad, el que sí es obligatorio, es el
-    del Banco Central.
+    Las rutas de **nuestra** API están en español, siguiendo el glosario. El documento
+    acordado entre los diez bancos sugiere rutas en inglés (`/accounts/{cbu}/depositos`),
+    pero ese estándar es una **sugerencia de comparabilidad**, no un contrato: cada banco
+    hostea su propia API.
+
+    **Lo que sí se queda en inglés es todo lo que toca al Banco Central**, incluidas
+    nuestras rutas `/api/central-bank/*` y los campos de su contrato (`bankCode`,
+    `cbuOrigen`, `saldoOrigen`). Ese contrato lo define su API, y traducirlo de este lado
+    sólo agrega una capa de traducción que confunde al depurar.
 
     ## Idempotencia
 
