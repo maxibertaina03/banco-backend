@@ -62,8 +62,12 @@ Las fases 0 a 2 son de a uno; de la 3 en adelante se trabaja en paralelo.
 - [x] Mover los documentos compartidos a `banco-backend/docs/`
 - [x] Marcar `propuesta-banco-central/` como superada
 - [ ] Sincronizar `main` desde `masita` en los dos repos
-- [ ] Integrar la rama `gonza`. **No se borra:** tiene el chatbot (backend, 31 ago)
-      y 4 commits viejos en el frontend. Se porta a ramas nuevas desde `main`
+- [x] **Frontend de Gonza integrado** (8 sep): su rama ya salía de la `main` nueva,
+      así que entró por fast-forward. El widget del chatbot está en `main`. Se
+      eliminó un `ChatbotWidget.tsx` duplicado que había quedado sin usar
+- [ ] **Falta el backend del chatbot.** Su rama `gonza` del backend sigue 33 commits
+      atrás, con 2 commits propios. Se portan los 3 archivos a una rama nueva
+- [x] `main` y `develop` sincronizadas con el último estado en los dos repos
 - [ ] Limpiar branches `backup/*` y podar el worktree fantasma
 - [ ] Acordar el flujo: rama por feature desde `main`, PR con CI en verde
 
