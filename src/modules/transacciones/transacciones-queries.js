@@ -100,6 +100,69 @@ function insertarTransaccionDeDeposito(executor, { idTipoDeposito, destinationId
   );
 }
 
+/** Id de un tipo de transacción por nombre. */
+function seleccionarIdTipoPorNombre(executor, nombre) {
+  return executor.query('SELECT id FROM tipos_transaccion WHERE nombre = $1 LIMIT 1', [nombre]);
+}
+
+/** Extracción de efectivo: sale de una cuenta y no entra a ninguna. */
+function insertarTransaccionDeExtraccion(executor, { idTipoExtraccion, originId, amount, descripcion, originCbu }) {
+  return executor.query(
+    `INSERT INTO transacciones (
+          tipo_transaccion_id,
+          cuenta_origen_id,
+          cuenta_destino_id,
+          monto,
+          descripcion,
+          estado,
+          canal,
+          cbu_origen,
+          cbu_destino
+        ) VALUES ($1, $2, NULL, $3, $4, 'completada', 'extraccion_efectivo', $5, NULL)
+        RETURNING *`,
+    [idTipoExtraccion, originId, amount, descripcion, originCbu]
+  );
+}
+
+/**
+ * Cambio de divisa: dos cuentas del mismo titular, monedas distintas.
+ *
+ * Se registra como UNA transacción y no dos, para que el extracto muestre la
+ * operación completa y no dos movimientos sueltos que hay que aparear. El
+ * `monto` que se guarda es el de origen; la descripción lleva la cotización
+ * aplicada para que el comprobante sea auditable.
+ */
+function insertarTransaccionDeCambio(executor, { idTipo, originId, destinationId, amount, descripcion, originCbu, destinationCbu }) {
+  return executor.query(
+    `INSERT INTO transacciones (
+          tipo_transaccion_id,
+          cuenta_origen_id,
+          cuenta_destino_id,
+          monto,
+          descripcion,
+          estado,
+          canal,
+          cbu_origen,
+          cbu_destino
+        ) VALUES ($1, $2, $3, $4, $5, 'completada', 'cambio_divisa', $6, $7)
+        RETURNING *`,
+    [idTipo, originId, destinationId, amount, descripcion, originCbu, destinationCbu]
+  );
+}
+
+/** Movimientos de una cuenta, paginados, del más reciente al más antiguo. */
+function seleccionarMovimientosDeCuenta(executor, cuentaId, limit, offset) {
+  return executor.query(
+    `SELECT t.*, tt.nombre AS tipo_transaccion_nombre
+       FROM transacciones t
+       LEFT JOIN tipos_transaccion tt ON tt.id = t.tipo_transaccion_id
+      WHERE t.cuenta_origen_id = $1 OR t.cuenta_destino_id = $1
+      ORDER BY t.created_at DESC, t.id DESC
+      LIMIT $2 OFFSET $3`,
+    [cuentaId, limit, offset]
+  );
+}
+
 /** Todas las transacciones (vista interna admin/operador). */
 function selectAllTransactions(executor) {
   return executor.query('SELECT * FROM transacciones ORDER BY created_at DESC LIMIT 100');
@@ -166,6 +229,10 @@ module.exports = {
   acreditarEnCuenta,
   insertarTransaccionDeTransferencia,
   insertarTransaccionDeDeposito,
+  seleccionarIdTipoPorNombre,
+  insertarTransaccionDeExtraccion,
+  insertarTransaccionDeCambio,
+  seleccionarMovimientosDeCuenta,
   selectAllTransactions,
   seleccionarTransaccionesDePersona,
   selectTransactionById,

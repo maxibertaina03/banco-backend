@@ -44,7 +44,13 @@ function buildMocks() {
     validarEntrante: vi.fn().mockResolvedValue({ acreditable: true, motivo: null }),
   };
 
-  return { pool, mockClient, centralBankService, escribirLogDeAuditoria, monedas };
+  const mercado = {
+    obtenerCotizacionParaOperar: vi.fn().mockResolvedValue({
+      moneda: 'USD', casa: 'oficial', compra: 1480, venta: 1530, desde_respaldo: false,
+    }),
+  };
+
+  return { pool, mockClient, centralBankService, escribirLogDeAuditoria, monedas, mercado };
 }
 
 function buildService(deps) {
@@ -503,5 +509,107 @@ describe('crearDeposito', () => {
     expect(queries).toContain('ROLLBACK');
     expect(queries).not.toContain('COMMIT');
     expect(phase).toBe('inserting');
+  });
+});
+
+// ── Cambio de divisa ────────────────────────────────────────────────────────
+describe('crearCambioDeDivisa', () => {
+  // Cuentas del mismo titular, una en cada moneda.
+  const ARS = {
+    id: 'c-ars', persona_id: 'p1', cbu: '1'.repeat(22),
+    moneda: 'ARS', saldo: '1000000.00', activa: true,
+  };
+  const USD = {
+    id: 'c-usd', persona_id: 'p1', cbu: '2'.repeat(22),
+    moneda: 'USD', saldo: '500.00', activa: true,
+  };
+
+  function armar({ origen = ARS, destino = USD, mocks = buildMocks() } = {}) {
+    mocks.mockClient.query.mockImplementation(async (sql) => {
+      const texto = typeof sql === 'string' ? sql : sql.text;
+      if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(texto)) return { rows: [], rowCount: 0 };
+      if (texto.includes('FOR UPDATE')) {
+        // Primera llamada devuelve el origen, segunda el destino.
+        const cuenta = mocks.mockClient.query.mock.calls
+          .filter(([s]) => String(typeof s === 'string' ? s : s.text).includes('FOR UPDATE')).length === 1
+          ? origen : destino;
+        return { rows: [cuenta], rowCount: 1 };
+      }
+      if (texto.includes('FROM tipos_transaccion')) return { rows: [{ id: 'tt-cambio' }], rowCount: 1 };
+      if (texto.includes('INSERT INTO transacciones')) {
+        return { rows: [{ id: 'tx-1', monto: '151500.00' }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    return { servicio: buildService(mocks), mocks };
+  }
+
+  it('compra dólares a la punta VENTA de la cotización', async () => {
+    const { servicio } = armar();
+
+    const r = await servicio.crearCambioDeDivisa({
+      cuenta_origen_id: 'c-ars', cuenta_destino_id: 'c-usd',
+      monto: 153000, usuarioActual: { persona_id: 'p1' },
+    });
+
+    // 153.000 pesos a 1530 (venta) = 100 dólares.
+    expect(r.operacion).toBe('compra');
+    expect(r.cotizacion_aplicada).toBe(1530);
+    expect(r.monto_destino).toBe(100);
+    expect(r.moneda_destino).toBe('USD');
+  });
+
+  it('vende dólares a la punta COMPRA de la cotización', async () => {
+    const { servicio } = armar({ origen: USD, destino: ARS });
+
+    const r = await servicio.crearCambioDeDivisa({
+      cuenta_origen_id: 'c-usd', cuenta_destino_id: 'c-ars',
+      monto: 100, usuarioActual: { persona_id: 'p1' },
+    });
+
+    // 100 dólares a 1480 (compra) = 148.000 pesos. El banco se queda el spread.
+    expect(r.operacion).toBe('venta');
+    expect(r.cotizacion_aplicada).toBe(1480);
+    expect(r.monto_destino).toBe(148000);
+  });
+
+  it('rechaza si las dos cuentas son de la misma moneda', async () => {
+    const { servicio } = armar({ origen: ARS, destino: { ...ARS, id: 'c-ars-2' } });
+    await expect(servicio.crearCambioDeDivisa({
+      cuenta_origen_id: 'c-ars', cuenta_destino_id: 'c-ars-2',
+      monto: 1000, usuarioActual: { persona_id: 'p1' },
+    })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rechaza si las cuentas son de titulares distintos', async () => {
+    const { servicio } = armar({ destino: { ...USD, persona_id: 'p2' } });
+    await expect(servicio.crearCambioDeDivisa({
+      cuenta_origen_id: 'c-ars', cuenta_destino_id: 'c-usd',
+      monto: 1000, usuarioActual: { persona_id: 'p1' },
+    })).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('422 si no alcanza el saldo', async () => {
+    const { servicio } = armar({ origen: { ...ARS, saldo: '100.00' } });
+    await expect(servicio.crearCambioDeDivisa({
+      cuenta_origen_id: 'c-ars', cuenta_destino_id: 'c-usd',
+      monto: 153000, usuarioActual: { persona_id: 'p1' },
+    })).rejects.toMatchObject({ status: 422 });
+  });
+
+  it('503 si no hay cotización vigente, sin tocar la base', async () => {
+    // La decisión: no se opera con un precio viejo. La cotización se pide antes
+    // de abrir la transacción, así que no llega a bloquear ninguna fila.
+    const mocks = buildMocks();
+    const err = Object.assign(new Error('sin cotización'), { status: 503 });
+    mocks.mercado.obtenerCotizacionParaOperar.mockRejectedValue(err);
+    const { servicio } = armar({ mocks });
+
+    await expect(servicio.crearCambioDeDivisa({
+      cuenta_origen_id: 'c-ars', cuenta_destino_id: 'c-usd',
+      monto: 1000, usuarioActual: { persona_id: 'p1' },
+    })).rejects.toMatchObject({ status: 503 });
+
+    expect(mocks.pool.connect).not.toHaveBeenCalled();
   });
 });

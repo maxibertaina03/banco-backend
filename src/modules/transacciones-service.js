@@ -17,11 +17,13 @@ const { esUsuarioInterno } = require('../utils/access-control');
 const { createTTLCache } = require('../utils/ttl-cache');
 const { Dinero } = require('../utils/dinero');
 const realMonedas = require('./monedas');
+const realMercado = require('./mercado-service');
 const q = require('./transacciones/transacciones-queries');
 const { findStringInPayload, findFullNameInPayload } = require('./transacciones/transacciones-helpers');
 
 function createTransaccionesService({
   monedas = realMonedas,
+  mercado = realMercado,
   pool = realPool,
   centralBankService = realCentralBankService,
   escribirLogDeAuditoria = realWriteAuditLog,
@@ -475,7 +477,187 @@ function createTransaccionesService({
     });
   }
 
+  /** Id de un tipo de transacción, o 500 si el catálogo no lo tiene. */
+  async function obtenerIdTipo(client, nombre) {
+    const result = await q.seleccionarIdTipoPorNombre(client, nombre);
+    if (result.rowCount === 0) {
+      throw new HttpError(500, `No se encontró el tipo de transacción "${nombre}".`);
+    }
+    return result.rows[0].id;
+  }
+
+  /** Valida un importe de entrada y lo devuelve como Dinero exacto. */
+  function importeValido(monto, queEs) {
+    let valor;
+    try {
+      valor = Dinero.desde(monto).redondeado();
+    } catch {
+      throw new HttpError(400, `El monto ${queEs} no es un importe válido.`);
+    }
+    if (!valor.esPositivo()) {
+      throw new HttpError(400, `El monto ${queEs} debe ser mayor a cero.`);
+    }
+    return valor;
+  }
+
+  /**
+   * Extracción de efectivo en sucursal. Operación interna, es el espejo del
+   * depósito: debita de una cuenta y no acredita en ninguna.
+   */
+  async function crearExtraccion({ cuenta_origen_id, monto, descripcion = null, usuarioActual, ipAddress }) {
+    const montoExtraccion = importeValido(monto, 'de la extracción');
+
+    return enTransaccionDeBd(async (client) => {
+      // FOR UPDATE: bloquea la fila mientras se valida y debita, para que dos
+      // extracciones simultáneas no puedan dejar el saldo en negativo.
+      const origen = await obtenerCuentaLocalPorId(client, cuenta_origen_id);
+      if (!origen) {
+        throw new HttpError(404, `No existe la cuenta de origen ${cuenta_origen_id}.`);
+      }
+      if (!origen.activa) {
+        throw new HttpError(400, 'La cuenta de origen no está activa.');
+      }
+      if (montoExtraccion.mayorQue(origen.saldo)) {
+        throw new HttpError(422, 'Saldo insuficiente para la extracción.');
+      }
+
+      const idTipo = await obtenerIdTipo(client, 'retiro');
+      const amount = montoExtraccion.aString();
+
+      await q.debitarDeCuenta(client, amount, origen.id);
+
+      const created = await q.insertarTransaccionDeExtraccion(client, {
+        idTipoExtraccion: idTipo,
+        originId: origen.id,
+        amount,
+        descripcion,
+        originCbu: origen.cbu,
+      });
+
+      await escribirLogDeAuditoria(client, {
+        usuarioId: usuarioActual?.id,
+        accion: 'CREATE',
+        entidad: 'transacciones',
+        entidadId: created.rows[0].id,
+        payloadDespues: created.rows[0],
+        ipAddress,
+      });
+
+      return { transaccion: created.rows[0], originCbu: origen.cbu };
+    });
+  }
+
+  /**
+   * Compra y venta de dólares entre las dos cajas del mismo titular.
+   *
+   * Es la única operación del sistema que cruza monedas. La cotización sale de
+   * DolarAPI y se toma con `obtenerCotizacionParaOperar()`, que **tira 503 si la
+   * API está caída** en vez de usar el último valor conocido: mostrar un precio
+   * viejo en pantalla es aceptable, cobrarle al cliente a ese precio no.
+   *
+   * El banco no elige el precio: usa `compra` y `venta` tal como las publica
+   * DolarAPI. El spread entre esas dos puntas es la ganancia del banco, igual
+   * que en la vida real.
+   */
+  async function crearCambioDeDivisa({ cuenta_origen_id, cuenta_destino_id, monto, usuarioActual, ipAddress }) {
+    const montoOrigen = importeValido(monto, 'del cambio');
+
+    if (cuenta_origen_id === cuenta_destino_id) {
+      throw new HttpError(400, 'La cuenta de origen y la de destino no pueden ser la misma.');
+    }
+
+    // La cotización se pide ANTES de abrir la transacción de base: si no hay
+    // precio vigente, la operación no existe y no se bloquea ninguna fila.
+    const cotizacion = await mercado.obtenerCotizacionParaOperar();
+
+    return enTransaccionDeBd(async (client) => {
+      const origen = await obtenerCuentaLocalPorId(client, cuenta_origen_id);
+      const destino = await obtenerCuentaLocalPorId(client, cuenta_destino_id);
+
+      if (!origen || !destino) {
+        throw new HttpError(404, 'No se encontró alguna de las cuentas del cambio.');
+      }
+      if (!origen.activa || !destino.activa) {
+        throw new HttpError(400, 'Las dos cuentas tienen que estar activas.');
+      }
+      if (origen.persona_id !== destino.persona_id) {
+        throw new HttpError(403, 'Las dos cuentas tienen que ser del mismo titular.');
+      }
+      if (!esUsuarioInterno(usuarioActual) && origen.persona_id !== usuarioActual?.persona_id) {
+        throw new HttpError(403, 'No puedes operar sobre una cuenta que no te pertenece.');
+      }
+
+      const monedaOrigen = origen.moneda || 'ARS';
+      const monedaDestino = destino.moneda || 'ARS';
+      if (monedaOrigen === monedaDestino) {
+        throw new HttpError(400, 'Las dos cuentas son de la misma moneda: no hay nada que cambiar.');
+      }
+      if (montoOrigen.mayorQue(origen.saldo)) {
+        throw new HttpError(422, 'Saldo insuficiente para el cambio.');
+      }
+
+      // Compra = el cliente compra dólares y paga a la punta `venta`.
+      // Venta   = el cliente vende dólares y cobra a la punta `compra`.
+      const esCompra = monedaOrigen === 'ARS' && monedaDestino === 'USD';
+      const tipoCambio = esCompra ? cotizacion.venta : cotizacion.compra;
+      const montoDestino = esCompra
+        ? montoOrigen.dividido(tipoCambio).redondeado()
+        : montoOrigen.por(tipoCambio).redondeado();
+
+      if (!montoDestino.esPositivo()) {
+        throw new HttpError(400, 'El monto es demasiado chico para el tipo de cambio vigente.');
+      }
+
+      const idTipo = await obtenerIdTipo(client, 'cambio');
+
+      await q.debitarDeCuenta(client, montoOrigen.aString(), origen.id);
+      await q.acreditarEnCuenta(client, montoDestino.aString(), destino.id);
+
+      const created = await q.insertarTransaccionDeCambio(client, {
+        idTipo,
+        originId: origen.id,
+        destinationId: destino.id,
+        amount: montoOrigen.aString(),
+        // La cotización va en la descripción para que el comprobante sea
+        // auditable sin tener que cruzar contra el histórico de DolarAPI.
+        descripcion: `${esCompra ? 'Compra' : 'Venta'} de USD a ${tipoCambio} — ` +
+          `${montoOrigen.aString()} ${monedaOrigen} → ${montoDestino.aString()} ${monedaDestino}`,
+        originCbu: origen.cbu,
+        destinationCbu: destino.cbu,
+      });
+
+      await escribirLogDeAuditoria(client, {
+        usuarioId: usuarioActual?.id,
+        accion: 'CREATE',
+        entidad: 'transacciones',
+        entidadId: created.rows[0].id,
+        payloadDespues: created.rows[0],
+        ipAddress,
+      });
+
+      return {
+        transaccion: created.rows[0],
+        operacion: esCompra ? 'compra' : 'venta',
+        monto_origen: montoOrigen.aNumero(),
+        moneda_origen: monedaOrigen,
+        monto_destino: montoDestino.aNumero(),
+        moneda_destino: monedaDestino,
+        cotizacion_aplicada: tipoCambio,
+      };
+    });
+  }
+
+  /** Movimientos de una cuenta, paginados. */
+  async function listarMovimientosDeCuenta({ cuentaId, page = 1, limit = 20 }) {
+    const offset = (page - 1) * limit;
+    const result = await q.seleccionarMovimientosDeCuenta(pool, cuentaId, limit, offset);
+    return { page, limit, count: result.rows.length, data: result.rows };
+  }
+
   return {
+    crearExtraccion,
+    crearCambioDeDivisa,
+    listarMovimientosDeCuenta,
     listarParaUsuario,
     obtenerPorIdParaUsuario,
     resolverDestinatario,

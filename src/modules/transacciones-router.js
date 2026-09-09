@@ -57,6 +57,18 @@ const depositSchema = z.object({
   descripcion: z.string().trim().min(1).max(140).nullable().optional(),
 });
 
+const extraccionSchema = z.object({
+  cuenta_origen_id: uuidLike,
+  monto: z.coerce.number().positive(),
+  descripcion: z.string().trim().min(1).max(140).nullable().optional(),
+});
+
+const cambioSchema = z.object({
+  cuenta_origen_id: uuidLike,
+  cuenta_destino_id: uuidLike,
+  monto: z.coerce.number().positive(),
+});
+
 // ── Rutas ───────────────────────────────────────────────────────────────────
 
 router.get(
@@ -172,6 +184,41 @@ router.post(
       ...aTransaccionPublica(result.transaccion),
       destinationName: result.destinationName,
       destinationCbu: result.destinationCbu,
+    });
+  })
+);
+
+// Extracción de efectivo en sucursal. Espejo del depósito: sólo roles internos.
+router.post(
+  '/extraccion',
+  requerirRoles(['admin', 'operador', 'tesoreria']),
+  idempotency,
+  validate(extraccionSchema),
+  asyncHandler(async (req, res) => {
+    const result = await service.crearExtraccion({
+      ...req.body,
+      usuarioActual: req.currentUser,
+      ipAddress: req.ip || null,
+    });
+    res.status(201).json(aTransaccionPublica(result.transaccion));
+  })
+);
+
+// Compra y venta de dólares entre las dos cajas del mismo titular.
+// Devuelve 503 si no hay cotización vigente: no se opera con un precio viejo.
+router.post(
+  '/cambio',
+  idempotency,
+  validate(cambioSchema),
+  asyncHandler(async (req, res) => {
+    const result = await service.crearCambioDeDivisa({
+      ...req.body,
+      usuarioActual: req.currentUser,
+      ipAddress: req.ip || null,
+    });
+    res.status(201).json({
+      ...result,
+      transaccion: aTransaccionPublica(result.transaccion),
     });
   })
 );
