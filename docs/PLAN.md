@@ -272,18 +272,26 @@ Cerradas en conjunto. Si alguna cambia, se actualiza acá primero y después el 
 | 9 | **Gemini con la cuenta gratuita del equipo** | `GEMINI_API_KEY` en `.env`, nunca commiteada. El plan gratuito tiene límite de pedidos: el rate limit de 30 cada 15 minutos que ya trae el chatbot ayuda a no agotarlo |
 | 10 | **El asistente es de SOLO LECTURA** | Responde sobre saldo, movimientos, si califica para un préstamo y datos del cliente autenticado. **No ejecuta ninguna acción**, ni siquiera bloquear una tarjeta. Todo lo que sea operar se deriva a los canales del banco |
 
-### Lo único que queda abierto
+### La última decisión, cerrada (8/9/2026)
 
-**Cada cuánto se actualiza la situación de un deudor.** Informar al otorgar el préstamo
-está claro; lo que falta es qué dispara la actualización cuando el cliente entra en mora.
-Sin algo periódico, la mora nunca llega al Central. Tres opciones, para decidir antes de
-la fase 5:
+**Cómo se actualiza la mora en el Banco Central: endpoint interno, disparo manual.**
 
-- Al registrar cada pago de cuota, recalcular y reinformar. Simple, sin infraestructura,
-  pero no detecta al que **deja** de pagar, que es justamente el caso que importa.
-- Un endpoint interno que recorra los préstamos vencidos, disparado a mano o por cron
-  externo. Es lo que ya se hace con la limpieza de `idempotency_keys`.
-- Un job en el arranque del server con `setInterval`. El más fácil y el más frágil.
+`POST /api/prestamos/actualizar-mora` recorre los préstamos con cuotas vencidas,
+recalcula la situación de cada deudor según los días de atraso y la reinforma con
+`POST /central-deudores`. Se dispara a mano, o desde un cron externo.
+
+**Por qué no la opción obvia.** Recalcular al registrar cada pago parecía lo más
+simple, pero no sirve: el cliente que **deja** de pagar no genera ningún pago, así
+que nunca se dispararía nada y el Central seguiría informando situación 1 sobre un
+deudor que hace seis meses no aparece. Es justamente el caso para el que existe la
+central de deudores.
+
+**Por qué no un `setInterval`.** Se duplica si corren dos instancias del backend, y
+no se puede testear sin esperar. El endpoint se llama desde un test y listo.
+
+Es además el patrón que el proyecto ya usa para limpiar `idempotency_keys`.
+
+Se implementa dentro de la fase 5, junto con los préstamos.
 
 ---
 
