@@ -30,6 +30,23 @@ const DecimalDinero = Decimal.clone({
 
 const ESCALA = 2;
 
+/**
+ * Valida un factor antes de operar con él.
+ *
+ * Existe por un incidente real: un `NaN` producto de una fecha mal parseada se
+ * propagó por una multiplicación, llegó a `aString()` como la cadena "NaN", y
+ * Postgres la aceptó sin error en una columna NUMERIC, dejando el saldo de una
+ * cuenta en NaN. Fallar temprano y con un mensaje claro es mucho mejor que
+ * escribir basura en la base.
+ */
+function factorValido(factor, operacion) {
+  const numero = Number(factor);
+  if (!Number.isFinite(numero)) {
+    throw new TypeError(`No se puede ${operacion} por un valor no finito: ${factor}.`);
+  }
+  return new DecimalDinero(String(factor));
+}
+
 class Dinero {
   #valor;
 
@@ -95,12 +112,12 @@ class Dinero {
 
   /** Multiplica por un factor adimensional (una tasa, un coeficiente). */
   por(factor) {
-    return new Dinero(this.#valor.times(new DecimalDinero(String(factor))));
+    return new Dinero(this.#valor.times(factorValido(factor, 'multiplicar')));
   }
 
   /** Divide por un factor adimensional. */
   dividido(factor) {
-    const divisor = new DecimalDinero(String(factor));
+    const divisor = factorValido(factor, 'dividir');
     if (divisor.isZero()) {
       throw new RangeError('División por cero en un cálculo de Dinero.');
     }

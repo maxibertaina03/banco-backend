@@ -12,5 +12,6 @@ module.exports = {
   ...require('./tipo-transaccion.dto'),
   ...require('./persona-rol.dto'),
   ...require('./tarjeta.dto'),
+  ...require('./prestamo.dto'),
   ...require('./inputs'),
 };

@@ -150,3 +150,27 @@ describe('Dinero — cálculo de préstamos (spec Banco Central v1.1)', () => {
     expect(interes.aString()).toBe('23835.62');
   });
 });
+
+describe('Dinero — la barrera contra el NaN', () => {
+  // Salió de un incidente real: una fecha mal parseada produjo un NaN que se
+  // propagó por una multiplicación, llegó a aString() como la cadena "NaN", y
+  // Postgres la aceptó en una columna NUMERIC. El saldo de una cuenta quedó
+  // literalmente en NaN.
+  it('multiplicar por NaN falla en vez de propagarlo', () => {
+    expect(() => Dinero.desde('100').por(NaN)).toThrow(TypeError);
+  });
+
+  it('dividir por undefined falla', () => {
+    expect(() => Dinero.desde('100').dividido(undefined)).toThrow(TypeError);
+  });
+
+  it('multiplicar por Infinity falla', () => {
+    expect(() => Dinero.desde('100').por(Infinity)).toThrow(TypeError);
+  });
+
+  it('los factores normales siguen funcionando', () => {
+    expect(Dinero.desde('100').por(0.5).aString()).toBe('50.00');
+    expect(Dinero.desde('100').por('0.5').aString()).toBe('50.00');
+    expect(Dinero.desde('100').dividido(4).aString()).toBe('25.00');
+  });
+});
