@@ -14,29 +14,104 @@ detrás. Se encuentran cuando los dos lados están listos.
 
 ### 1. Portar el chatbot del backend — *puede arrancar ya*
 
-Es lo único suyo que quedó afuera de `main`. La rama `gonza` del backend está 33 commits
-atrás, así que **no rebasear**: rama nueva desde `main` y copiar los tres archivos.
+Es lo único suyo que quedó afuera de `main`. Paso a paso, verificado contra el
+código real el 8/9/2026.
+
+> **No borrar la rama `gonza` todavía.** Sus dos commits del chatbot existen
+> **sólo ahí**: si se borra antes de mergear, el trabajo se pierde. Se borra al
+> final, en el paso 9.
+
+**1. Rama nueva desde `main`.** De feature, no personal: vive lo que dura el PR.
+Una rama personal permanente es justamente lo que hizo que esto quedara 33
+commits atrás.
 
 ```bash
 git checkout main && git pull
 git checkout -b feat/chatbot-backend
-# copiar desde la rama vieja:
+```
+
+**2. Traer los tres archivos.**
+
+```bash
 git checkout origin/gonza -- src/modules/chatbot-router.js \
                              src/modules/chatbot-service.js \
                              tests/modules/chatbot-service.test.js
 ```
 
-Después hay que re-cablear a mano en `src/routes/index.js` (`router.use('/chatbot', ...)`)
-y agregar `geminiApiKey` y `geminiModel` en `src/config/env.js`.
+**No hace falta `npm install`**: `axios`, `express-rate-limit` y `zod` ya están
+en `main`.
 
-**Dos cosas que rompen si se pasan por alto:**
+**3. Arreglar el import de `clerk-auth`** en `chatbot-router.js`. En `main` ese
+módulo exporta un objeto, no un default:
 
-- `chatbot-router.js` hace `require('../middlewares/clerk-auth')` como default, pero en
-  `main` ese módulo exporta un objeto. Va con destructuring: `const { clerkAuth } = ...`.
-- Todo el dominio está en español ahora. Leer [GLOSARIO.md](GLOSARIO.md) antes de tocar.
+```js
+const { clerkAuth } = require('../middlewares/clerk-auth');
+```
 
-**Definición de terminado:** `npm test` en verde, `node -e "require('./src/app')"` sin
-error, y el chatbot contesta.
+**4. Sacar `clerkAuth` de la lista de middlewares del router.** `app.js` ya lo
+aplica sobre todo `/api`, y el chatbot se monta ahí adentro, así que dejarlo en
+el router valida el token dos veces. Si se saca del todo, el paso 3 ya no hace
+falta y se puede borrar el import.
+
+**5. Cablear la ruta** en `src/routes/index.js`. `relationsRouter` va último
+siempre, porque está montado en `/` y se queda con lo que no matcheó antes:
+
+```js
+const chatbotRouter = require('../modules/chatbot-router');
+// ...
+router.use('/chatbot', chatbotRouter);
+router.use('/', relationsRouter);
+```
+
+**6. Variables de entorno** en `src/config/env.js`:
+
+```js
+geminiApiKey: process.env.GEMINI_API_KEY,
+geminiModel: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+```
+
+La key va en el `.env` local. **Que no se commitee**: `.env` está en el
+`.gitignore` y tiene que seguir así.
+
+**7. Arreglar la consulta de saldos.** Es nuevo desde la migración multi-moneda
+y es el punto que más importa. En `chatbot-service.js`:
+
+```sql
+-- antes
+SELECT c.cbu, NULL::text AS alias, c.numero_cuenta, c.saldo, c.activa
+-- después
+SELECT c.cbu, c.alias, c.numero_cuenta, c.saldo, c.moneda, c.activa
+```
+
+Y agregar `currency: account.moneda` al objeto que arma abajo. Sin esto, a un
+cliente con caja en pesos y en dólares el asistente le contesta "tenés 420.000 y
+0" sin aclarar cuál es cuál; con saldos parecidos en las dos monedas la
+respuesta es directamente engañosa. De paso, el `NULL::text AS alias` ya no
+tiene sentido: la columna existe y cada cuenta tiene su alias.
+
+**8. Verificar, en este orden.**
+
+```bash
+npm test                        # los 182 de main + los del chatbot
+node -e "require('./src/app')"  # esto caza los imports rotos
+npm run dev                     # y probar el endpoint a mano
+```
+
+El segundo es el que importa: **ni los tests ni el build detectan un import
+roto**, sólo aparece al arrancar la app.
+
+**9. PR y recién ahí borrar la rama vieja.**
+
+```bash
+git push -u origin feat/chatbot-backend
+# PR contra main, CI en verde, merge, y DESPUÉS:
+git push origin --delete gonza
+```
+
+**Algo a favor:** su test ya usa inyección de dependencias
+(`createChatbotService({ pool, geminiApi, apiKey, model })`), que es el patrón
+correcto del proyecto. Va a funcionar tal cual, sin toparse con el problema de
+`spyOn` que sí frena a quien no lo use.
 
 ### 2. El asistente, de solo lectura — *después del punto 1*
 
