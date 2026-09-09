@@ -7,6 +7,7 @@ const HttpError = require('../utils/http-error');
 const { uuidLike } = require('../utils/schemas');
 const { tieneAlgunRol, esUsuarioInterno } = require('../utils/access-control');
 const centralBankService = require('./central-bank-service');
+const cuentasService = require('./cuentas-service');
 const {
   aPersonaPublica,
   aUsuarioPublico,
@@ -145,6 +146,37 @@ router.get(
     );
 
     res.json(result.rows.map(aCuentaPublica));
+  })
+);
+
+const aperturaSchema = z.object({
+  moneda: z.enum(['ARS', 'USD']),
+  alias: z.string().trim().min(1).max(40).nullable().optional(),
+  environment: z.enum(['test', 'prod']).optional(),
+});
+
+// Apertura de una caja de ahorro en la moneda pedida. En la práctica se usa para
+// la de dólares: la de pesos ya existe desde que la persona se registra.
+//
+// Devuelve 201 si la creó y 200 si ya existía, replicando el criterio del Banco
+// Central para que reintentar sea seguro.
+router.post(
+  '/personas/:id/cuentas/apertura',
+  validate(paramsSchema, 'params'),
+  validate(aperturaSchema),
+  asyncHandler(async (req, res) => {
+    assertCanAccessPersona(req, req.params.id);
+
+    const { cuenta, creada } = await cuentasService.abrirCuenta({
+      personaId: req.params.id,
+      moneda: req.body.moneda,
+      alias: req.body.alias ?? null,
+      usuarioActual: req.currentUser,
+      ipAddress: req.ip || null,
+      environment: req.body.environment,
+    });
+
+    res.status(creada ? 201 : 200).json(aCuentaPublica(cuenta));
   })
 );
 

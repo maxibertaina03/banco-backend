@@ -153,10 +153,20 @@ con su caja en pesos y otra en dólares.
 escala de `Dinero` alcanza. Queda por revisar sólo el ratio de CEDEARs, que no
 es un importe monetario.
 
-### Fase 2 — Cimientos *(Maxi, backend)*
+### Fase 2 — Cimientos *(Maxi, backend)* — casi terminada
 Bloquea todo lo demás.
-- Cuentas multi-moneda: N cuentas por persona, cada una con CBU, moneda y alias.
-  **Guardar siempre el CBU en USD localmente**, porque el Central no lo lista.
+- [x] Migración `20260908_cuentas_multimoneda.sql` — **falta correrla en Supabase**
+- [x] Seis rutas del Central en `central-bank-service`
+- [x] Adapter de mercado en `src/modules/mercado/` + `mercado-service.js`
+- [x] Chequeo crediticio en `riesgo-crediticio.js`
+- [x] `POST /api/personas/:id/cuentas/apertura` con `cuentas-service.js`
+- [ ] Probar de punta a punta contra el ambiente `test`, después de la migración
+
+**Decidido:** si DolarAPI está caída, la compra y venta de dólares **se bloquea**
+con 503. Mostrar un precio viejo en pantalla es aceptable; cobrarle al cliente a
+ese precio no, porque le venderíamos a un valor que ya no existe.
+`obtenerCotizacionDolar()` sirve para mostrar, `obtenerCotizacionParaOperar()`
+para operar.
 - Extender `central-bank-client.js` con las seis rutas nuevas
 - Resolver la moneda de un CBU con `GET /accounts/{cbu}`, que sirve para las dos
   monedas (verificado). No hace falta el fallback que estaba planeado

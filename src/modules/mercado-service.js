@@ -17,6 +17,7 @@
 // siendo válido. Por eso la normalización vive en un solo lugar: esta función.
 
 const { createTTLCache } = require('../utils/ttl-cache');
+const HttpError = require('../utils/http-error');
 const { traer } = require('./mercado/mercado-client');
 
 const URL_DOLAR = 'https://dolarapi.com/v1/dolares';
@@ -123,6 +124,31 @@ async function obtenerTasasReferencia() {
   return tasas;
 }
 
+/**
+ * Cotización para **operar**, no para mostrar.
+ *
+ * Diferencia con `obtenerCotizacionDolar()`: si el valor viene del respaldo,
+ * porque DolarAPI está caída, esta tira 503 en vez de devolverlo.
+ *
+ * El motivo es que comprar y vender dólares mueve plata de verdad. Mostrar en
+ * pantalla un precio de hace una hora es aceptable; cobrarle al cliente a ese
+ * precio no lo es, porque le estaríamos vendiendo a un valor que ya no existe y
+ * la diferencia la come el banco. Es lo que hace un banco real: si no hay
+ * cotización, no hay operación de cambio.
+ */
+async function obtenerCotizacionParaOperar() {
+  const cotizacion = await obtenerCotizacionDolar();
+
+  if (cotizacion.desde_respaldo) {
+    throw new HttpError(
+      503,
+      'No hay cotización vigente en este momento. Intentá de nuevo en unos minutos.'
+    );
+  }
+
+  return cotizacion;
+}
+
 /** Sólo para tests: fuerza que la próxima llamada vaya a la API. */
 function _limpiarCache() {
   cacheCotizacion.clear();
@@ -131,6 +157,7 @@ function _limpiarCache() {
 
 module.exports = {
   obtenerCotizacionDolar,
+  obtenerCotizacionParaOperar,
   obtenerTasasReferencia,
   aPorcentaje,
   promediarTna,
