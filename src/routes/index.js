@@ -4,6 +4,7 @@ const entities = require('../modules/entities');
 const relationsRouter = require('../modules/relations-router');
 const transaccionesRouter = require('../modules/transacciones-router');
 const centralBankRouter = require('../modules/central-bank-router');
+const tarjetasRouter = require('../modules/tarjetas-router');
 
 const router = express.Router();
 
@@ -18,6 +19,7 @@ router.use('/transacciones', transaccionesRouter);
 router.use('/central-bank', centralBankRouter);
 router.use('/destinatarios', createCrudRouter(entities.destinatarios));
 router.use('/auditoria', createCrudRouter(entities.auditoria));
+router.use('/tarjetas', tarjetasRouter);
 router.use('/', relationsRouter);
 
 module.exports = router;

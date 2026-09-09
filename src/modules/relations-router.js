@@ -10,10 +10,12 @@ const { tieneAlgunRol, esUsuarioInterno } = require('../utils/access-control');
 const centralBankService = require('./central-bank-service');
 const cuentasService = require('./cuentas-service');
 const transaccionesService = require('./transacciones-service');
+const tarjetasService = require('./tarjetas-service');
 const {
   aPersonaPublica,
   aUsuarioPublico,
   aCuentaPublica,
+  aTarjetaPublica,
   aTransaccionPublica,
   aDestinatarioPublico,
   aRolPublico,
@@ -326,6 +328,16 @@ router.get(
     );
 
     res.json(result.rows.map(aRolPublico));
+  })
+);
+
+router.get(
+  '/personas/:id/tarjetas',
+  validate(paramsSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    assertCanAccessPersona(req, req.params.id);
+    const tarjetas = await tarjetasService.listarPorPersona(req.params.id);
+    res.json(tarjetas.map(aTarjetaPublica));
   })
 );
 
