@@ -5,9 +5,11 @@ const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
 const HttpError = require('../utils/http-error');
 const { uuidLike } = require('../utils/schemas');
+const { paginationSchema } = require('../utils/pagination');
 const { tieneAlgunRol, esUsuarioInterno } = require('../utils/access-control');
 const centralBankService = require('./central-bank-service');
 const cuentasService = require('./cuentas-service');
+const transaccionesService = require('./transacciones-service');
 const {
   aPersonaPublica,
   aUsuarioPublico,
@@ -367,6 +369,27 @@ router.get(
   })
 );
 
+// Movimientos de una cuenta, paginados. Es la ruta declarada en el contrato
+// (`/api/cuentas/{cuentaId}/movimientos`) y la que debería usar el frontend
+// nuevo. `/cuentas/:id/transacciones` queda como está porque el portal ya la
+// consume y devuelve el listado completo sin paginar.
+router.get(
+  '/cuentas/:id/movimientos',
+  validate(paramsSchema, 'params'),
+  validate(paginationSchema, 'query'),
+  asyncHandler(async (req, res) => {
+    await assertCanAccessCuenta(req, req.params.id);
+
+    const resultado = await transaccionesService.listarMovimientosDeCuenta({
+      cuentaId: req.params.id,
+      page: req.query.page,
+      limit: req.query.limit,
+    });
+
+    res.json({ ...resultado, data: resultado.data.map(aTransaccionPublica) });
+  })
+);
+
 router.get(
   '/cuentas/:id/transacciones',
   validate(paramsSchema, 'params'),
@@ -380,10 +403,14 @@ router.get(
               destino.numero_cuenta AS cuenta_destino_numero
        FROM transacciones t
        JOIN tipos_transaccion tt ON tt.id = t.tipo_transaccion_id
-       JOIN cuentas origen ON origen.id = t.cuenta_origen_id
+       -- LEFT JOIN en las dos puntas, no INNER: un deposito en efectivo o una
+       -- transferencia entrante tienen cuenta_origen_id NULL, y una extraccion
+       -- tiene cuenta_destino_id NULL. Con INNER JOIN esas filas desaparecian
+       -- del extracto y el cliente no veia plata que si habia recibido.
+       LEFT JOIN cuentas origen ON origen.id = t.cuenta_origen_id
        LEFT JOIN cuentas destino ON destino.id = t.cuenta_destino_id
        WHERE t.cuenta_origen_id = $1 OR t.cuenta_destino_id = $1
-       ORDER BY t.created_at DESC`,
+       ORDER BY t.created_at DESC, t.id DESC`,
       [req.params.id]
     );
 

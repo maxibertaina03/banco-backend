@@ -12,106 +12,71 @@ detrás. Se encuentran cuando los dos lados están listos.
 
 ## Gonza
 
-### 1. Portar el chatbot del backend — *puede arrancar ya*
+### 1. Traer el chatbot del backend a `main` — *puede arrancar ya*
 
-Es lo único suyo que quedó afuera de `main`. Paso a paso, verificado contra el
-código real el 8/9/2026.
+Es lo único suyo que quedó afuera. **Se hace con un merge, no portando archivos
+a mano.** Se midió: da 9 archivos en conflicto con 1 o 2 bloques cada uno, más
+`package-lock.json`, que no se resuelve sino que se regenera. Es media hora.
 
-> **No borrar la rama `gonza` todavía.** Sus dos commits del chatbot existen
-> **sólo ahí**: si se borra antes de mergear, el trabajo se pierde. Se borra al
-> final, en el paso 9.
+**La rama `gonza` no se borra.** Sigue siendo su rama de trabajo; lo que cambia
+es que se sincroniza seguido.
 
-**1. Rama nueva desde `main`.** De feature, no personal: vive lo que dura el PR.
-Una rama personal permanente es justamente lo que hizo que esto quedara 33
-commits atrás.
+**1. El merge.**
 
 ```bash
-git checkout main && git pull
-git checkout -b feat/chatbot-backend
+cd banco-backend
+git checkout gonza && git pull
+rm package-lock.json          # se regenera, no vale la pena resolverlo
+git merge origin/main
 ```
 
-**2. Traer los tres archivos.**
+**2. Resolver los conflictos.** Son todos "agregar/agregar": archivos que
+existen en las dos ramas por caminos distintos.
+
+| Archivo | Qué hacer |
+|---|---|
+| `src/utils/logger.js` | Quedarse con la de `main` |
+| `src/middlewares/clerk-auth.js` | Quedarse con la de `main` |
+| `src/modules/auth-router.js` | Quedarse con la de `main` |
+| `docs/GUIA_RAPIDA.md` | Quedarse con la de `main` |
+| `package.json` | Quedarse con la de `main`: ya trae `axios`, `express-rate-limit` y `pino` |
+| `src/app.js` | Quedarse con la de `main`: lo que agregaba la rama vieja ya está |
+| `src/routes/index.js` | La de `main` **más** `router.use('/chatbot', chatbotRouter)`. **`relationsRouter` va último**, porque está montado en `/` |
+| `src/config/env.js` | La de `main` **más** `geminiApiKey` y `geminiModel` |
+| `.env.example` | La de `main` **más** `GEMINI_API_KEY` |
+
+Después, `npm install` para regenerar el lock.
+
+**3. Cuatro arreglos que van sí o sí**, porque `main` cambió debajo:
+
+- **El import de `clerk-auth`**, que ahora exporta un objeto:
+  `const { clerkAuth } = require('../middlewares/clerk-auth');`
+- **Sacar `clerkAuth` de los middlewares del router.** `app.js` ya lo aplica
+  sobre todo `/api` y el chatbot cuelga de ahí, así que dejarlo valida el token
+  dos veces. Si se saca del todo, el punto anterior ni hace falta.
+- **La consulta de saldos no trae la moneda.** Es el más importante: desde la
+  migración multi-moneda una persona puede tener caja en pesos **y** en dólares.
+  En `chatbot-service.js`, cambiar
+  `SELECT c.cbu, NULL::text AS alias, c.numero_cuenta, c.saldo, c.activa`
+  por `SELECT c.cbu, c.alias, c.numero_cuenta, c.saldo, c.moneda, c.activa`,
+  y agregar `currency: account.moneda` al objeto de abajo. Sin esto el asistente
+  contesta "tenés 420.000 y 100" sin aclarar que lo segundo son dólares.
+- **Leer [GLOSARIO.md](GLOSARIO.md)** antes de escribir código nuevo: todo el
+  dominio pasó a español.
+
+**4. Verificar, en este orden.**
 
 ```bash
-git checkout origin/gonza -- src/modules/chatbot-router.js \
-                             src/modules/chatbot-service.js \
-                             tests/modules/chatbot-service.test.js
+npm test                        # los de main más los del chatbot
+node -e "require('./src/app')"  # ESTE es el que importa
+npm run dev
 ```
 
-**No hace falta `npm install`**: `axios`, `express-rate-limit` y `zod` ya están
-en `main`.
+El segundo no se saltea: **ni los tests ni el build detectan un import roto**,
+sólo aparece al arrancar la app.
 
-**3. Arreglar el import de `clerk-auth`** en `chatbot-router.js`. En `main` ese
-módulo exporta un objeto, no un default:
-
-```js
-const { clerkAuth } = require('../middlewares/clerk-auth');
-```
-
-**4. Sacar `clerkAuth` de la lista de middlewares del router.** `app.js` ya lo
-aplica sobre todo `/api`, y el chatbot se monta ahí adentro, así que dejarlo en
-el router valida el token dos veces. Si se saca del todo, el paso 3 ya no hace
-falta y se puede borrar el import.
-
-**5. Cablear la ruta** en `src/routes/index.js`. `relationsRouter` va último
-siempre, porque está montado en `/` y se queda con lo que no matcheó antes:
-
-```js
-const chatbotRouter = require('../modules/chatbot-router');
-// ...
-router.use('/chatbot', chatbotRouter);
-router.use('/', relationsRouter);
-```
-
-**6. Variables de entorno** en `src/config/env.js`:
-
-```js
-geminiApiKey: process.env.GEMINI_API_KEY,
-geminiModel: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-```
-
-La key va en el `.env` local. **Que no se commitee**: `.env` está en el
-`.gitignore` y tiene que seguir así.
-
-**7. Arreglar la consulta de saldos.** Es nuevo desde la migración multi-moneda
-y es el punto que más importa. En `chatbot-service.js`:
-
-```sql
--- antes
-SELECT c.cbu, NULL::text AS alias, c.numero_cuenta, c.saldo, c.activa
--- después
-SELECT c.cbu, c.alias, c.numero_cuenta, c.saldo, c.moneda, c.activa
-```
-
-Y agregar `currency: account.moneda` al objeto que arma abajo. Sin esto, a un
-cliente con caja en pesos y en dólares el asistente le contesta "tenés 420.000 y
-0" sin aclarar cuál es cuál; con saldos parecidos en las dos monedas la
-respuesta es directamente engañosa. De paso, el `NULL::text AS alias` ya no
-tiene sentido: la columna existe y cada cuenta tiene su alias.
-
-**8. Verificar, en este orden.**
-
-```bash
-npm test                        # los 182 de main + los del chatbot
-node -e "require('./src/app')"  # esto caza los imports rotos
-npm run dev                     # y probar el endpoint a mano
-```
-
-El segundo es el que importa: **ni los tests ni el build detectan un import
-roto**, sólo aparece al arrancar la app.
-
-**9. PR y recién ahí borrar la rama vieja.**
-
-```bash
-git push -u origin feat/chatbot-backend
-# PR contra main, CI en verde, merge, y DESPUÉS:
-git push origin --delete gonza
-```
-
-**Algo a favor:** su test ya usa inyección de dependencias
-(`createChatbotService({ pool, geminiApi, apiKey, model })`), que es el patrón
-correcto del proyecto. Va a funcionar tal cual, sin toparse con el problema de
-`spyOn` que sí frena a quien no lo use.
+**5. PR `gonza` → `main`**, CI en verde, merge. Y después del merge,
+`git merge origin/main` para quedar al día.
 
 ### 2. El asistente, de solo lectura — *después del punto 1*
 
@@ -164,6 +129,19 @@ En orden, siguiendo las fases:
   no se acumulan en el cliente.
 - Los listados vienen paginados como `{ page, limit, count, data }`. Ojo que `count` es
   lo que hay **en esta página**, no el total del recurso.
+
+### Cómo mantener la rama al día
+
+Antes de arrancar cualquier tarea nueva:
+
+```bash
+git checkout gonza && git merge origin/main
+```
+
+Ese comando es todo lo que hace falta. La rama tiene hoy 41 commits de atraso en
+el backend y por eso este merge tiene conflictos; corriéndolo seguido, no los
+tiene nunca. **La señal de que se esperó demasiado es cuando aparecen conflictos
+en archivos que uno no tocó.**
 
 ---
 
