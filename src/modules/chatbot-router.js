@@ -6,10 +6,10 @@ const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
 const clerkAuth = require('../middlewares/clerk-auth');
 const HttpError = require('../utils/http-error');
-const { MAX_HISTORY_MESSAGES, MAX_MESSAGE_LENGTH, createChatbotService } = require('./chatbot-service');
+const { MAX_HISTORY_MESSAGES, MAX_MESSAGE_LENGTH, crearServicioChatbot } = require('./chatbot-service');
 
 const router = express.Router();
-const service = createChatbotService();
+const service = crearServicioChatbot();
 const chatbotLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
@@ -43,7 +43,7 @@ router.post(
       throw new HttpError(403, 'No existe un perfil bancario activo para este usuario.');
     }
 
-    const reply = await service.sendMessage({ ...req.body, usuarioActual: result.rows[0] });
+    const reply = await service.enviarMensaje({ ...req.body, usuarioActual: result.rows[0] });
     res.json({ reply });
   })
 );

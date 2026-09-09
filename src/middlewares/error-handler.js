@@ -1,5 +1,5 @@
 function errorHandler(error, _req, res, _next) {
-  if (error.code && typeof error.code === 'string' && error.code.startsWith('23')) {
+  if (error.code && typeof error.code === 'string' && (/^(23|42)/.test(error.code) || error.code === '42703')) {
     return res.status(400).json({
       error: 'Error de base de datos.',
       message: error.detail || error.message,

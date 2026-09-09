@@ -2,7 +2,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const asyncHandler = require('../utils/async-handler');
 const HttpError = require('../utils/http-error');
-const clerkAuth = require('../middlewares/clerk-auth');
+const { clerkAuth } = require('../middlewares/clerk-auth');
 
 const router = express.Router();
 

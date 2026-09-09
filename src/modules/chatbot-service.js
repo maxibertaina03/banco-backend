@@ -22,16 +22,16 @@ const SENSITIVE_REQUEST = /\b(api[_ -]?key|token|contrase(?:ña|na)|password|sec
 const SENSITIVE_RESPONSE = /\b(api[_ -]?key|token|contrase(?:ña|na)|password|secreto|credencial|jwt|dni|clave privada)\b/i;
 const SAFE_SENSITIVE_RESPONSE = 'No puedo mostrar información sensible o credenciales. Para una gestión segura, utilizá los canales oficiales de Banco Orbital.';
 const SAFE_PROVIDER_FALLBACK = 'No puedo consultar la información en este momento, pero puedo ayudarte con preguntas generales sobre tu cuenta y servicios bancarios. Intentá nuevamente en unos segundos.';
-const BALANCE_REQUEST = /\b(saldo|balance|cu[aá]nto tengo|dinero disponible)\b/i;
+const SOLICITUD_DE_SALDO = /\b(saldo|balance|cu[aá]nto tengo|dinero disponible)\b/i;
 
-function normalizeHistory(history) {
+function normalizarHistorial(history) {
   return history.slice(-MAX_HISTORY_MESSAGES).map(({ role, content }) => ({
     role: role === 'assistant' ? 'model' : 'user',
     parts: [{ text: content.trim().slice(0, MAX_MESSAGE_LENGTH) }],
   }));
 }
 
-function validateInput({ message, history = [] }) {
+function validarEntrada({ message, history = [] }) {
   if (typeof message !== 'string' || !message.trim()) {
     throw new HttpError(400, 'El mensaje no puede estar vacío.');
   }
@@ -51,8 +51,8 @@ function validateInput({ message, history = [] }) {
   }
 }
 
-async function buildAuthorizedContext(pool, personaId) {
-  const accounts = await pool.query(
+async function armarContextoAutorizado(pool, personaId) {
+  const cuentas = await pool.query(
     `SELECT c.cbu, NULL::text AS alias, c.numero_cuenta, c.saldo, c.activa
      FROM cuentas c
      WHERE c.persona_id = $1
@@ -62,37 +62,37 @@ async function buildAuthorizedContext(pool, personaId) {
   );
 
   return {
-    accounts: accounts.rows.filter((account) => account.activa).map((account) => ({
-      cbu: account.cbu,
-      alias: account.alias,
-      accountNumber: account.numero_cuenta,
-      balance: Number(account.saldo || 0),
+    cuentas: cuentas.rows.filter((cuenta) => cuenta.activa).map((cuenta) => ({
+      cbu: cuenta.cbu,
+      alias: cuenta.alias,
+      numeroCuenta: cuenta.numero_cuenta,
+      saldo: Number(cuenta.saldo || 0),
     })),
   };
 }
 
-function formatBalanceReply(context) {
-  const totalBalance = context.accounts.reduce((sum, account) => sum + account.balance, 0);
-  const formattedBalance = new Intl.NumberFormat('es-AR', {
+function formatearRespuestaDeSaldo(contexto) {
+  const saldoTotal = contexto.cuentas.reduce((suma, cuenta) => suma + cuenta.saldo, 0);
+  const saldoFormateado = new Intl.NumberFormat('es-AR', {
     style: 'currency',
     currency: 'ARS',
-  }).format(totalBalance);
+  }).format(saldoTotal);
 
-  if (context.accounts.length === 1) {
-    return `El saldo de tu cuenta es ${formattedBalance}.`;
+  if (contexto.cuentas.length === 1) {
+    return `El saldo de tu cuenta es ${saldoFormateado}.`;
   }
 
-  return `El saldo total de tus cuentas activas es ${formattedBalance}.`;
+  return `El saldo total de tus cuentas activas es ${saldoFormateado}.`;
 }
 
-function createChatbotService({
+function crearServicioChatbot({
   pool = realPool,
   geminiApi = axios,
   apiKey = env.geminiApiKey,
   model = env.geminiModel,
 } = {}) {
-  async function sendMessage({ message, history = [], usuarioActual }) {
-    validateInput({ message, history });
+  async function enviarMensaje({ message, history = [], usuarioActual }) {
+    validarEntrada({ message, history });
 
     if (!usuarioActual?.persona_id) {
       throw new HttpError(403, 'No se pudo determinar tu perfil bancario.');
@@ -108,14 +108,14 @@ function createChatbotService({
 
     let context;
     try {
-      context = await buildAuthorizedContext(pool, usuarioActual.persona_id);
+      context = await armarContextoAutorizado(pool, usuarioActual.persona_id);
     } catch (error) {
       logger.error({ err: error, personaId: usuarioActual.persona_id }, 'chatbot context unavailable');
       throw new HttpError(503, 'El asistente virtual no puede consultar tus datos en este momento.');
     }
 
-    if (BALANCE_REQUEST.test(message)) {
-      return formatBalanceReply(context);
+    if (SOLICITUD_DE_SALDO.test(message)) {
+      return formatearRespuestaDeSaldo(context);
     }
 
     const prompt = [
@@ -131,7 +131,7 @@ function createChatbotService({
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
         {
           systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-          contents: [...normalizeHistory(history), { role: 'user', parts: [{ text: prompt }] }],
+          contents: [...normalizarHistorial(history), { role: 'user', parts: [{ text: prompt }] }],
           generationConfig: { temperature: 0.2, maxOutputTokens: 400 },
         },
         { params: { key: apiKey }, timeout: GEMINI_TIMEOUT_MS }
@@ -166,13 +166,13 @@ function createChatbotService({
     }
   }
 
-  return { sendMessage, buildAuthorizedContext };
+  return { armarContextoAutorizado, enviarMensaje };
 }
 
 module.exports = {
+  armarContextoAutorizado,
+  crearServicioChatbot,
   MAX_HISTORY_MESSAGES,
   MAX_MESSAGE_LENGTH,
   SYSTEM_INSTRUCTION,
-  buildAuthorizedContext,
-  createChatbotService,
 };

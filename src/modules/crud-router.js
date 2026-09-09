@@ -15,7 +15,7 @@ function createCrudRouter(entityConfig) {
   router.get(
     '/',
     asyncHandler(async (req, res) => {
-      const data = await crudService.list(entityConfig, req.query);
+      const data = await crudService.listar(entityConfig, req.query);
       res.json(data);
     })
   );
@@ -24,7 +24,7 @@ function createCrudRouter(entityConfig) {
     '/:id',
     validate(paramsSchema, 'params'),
     asyncHandler(async (req, res) => {
-      const data = await crudService.getById(entityConfig, req.params.id);
+      const data = await crudService.obtenerPorId(entityConfig, req.params.id);
       res.json(data);
     })
   );
@@ -33,7 +33,7 @@ function createCrudRouter(entityConfig) {
     '/',
     validate(entityConfig.createSchema),
     asyncHandler(async (req, res) => {
-      const created = await crudService.create(entityConfig, req.body);
+      const created = await crudService.crear(entityConfig, req.body);
       res.status(201).json(created);
     })
   );
@@ -43,7 +43,7 @@ function createCrudRouter(entityConfig) {
     validate(paramsSchema, 'params'),
     validate(entityConfig.updateSchema),
     asyncHandler(async (req, res) => {
-      const updated = await crudService.update(entityConfig, req.params.id, req.body);
+      const updated = await crudService.actualizar(entityConfig, req.params.id, req.body);
       res.json(updated);
     })
   );
@@ -52,7 +52,7 @@ function createCrudRouter(entityConfig) {
     '/:id',
     validate(paramsSchema, 'params'),
     asyncHandler(async (req, res) => {
-      const deleted = await crudService.remove(entityConfig, req.params.id);
+      const deleted = await crudService.eliminar(entityConfig, req.params.id);
       res.json({
         message: 'Registro eliminado correctamente.',
         data: deleted,

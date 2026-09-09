@@ -77,11 +77,14 @@ CREATE TABLE cuentas (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     persona_id      UUID        NOT NULL REFERENCES personas(id)      ON DELETE CASCADE,
     tipo_cuenta_id  UUID        NOT NULL REFERENCES tipos_cuenta(id),
-    numero_cuenta   TEXT        UNIQUE NOT NULL,
-    cbu             TEXT        UNIQUE NOT NULL,
+    numero_cuenta   TEXT        NOT NULL,
+    cbu             TEXT        NOT NULL,
+    moneda          TEXT        NOT NULL DEFAULT 'ARS' CHECK (moneda IN ('ARS', 'USD')),
     saldo           NUMERIC(18,2) NOT NULL DEFAULT 0.00,
     activa          BOOLEAN     DEFAULT TRUE,
-    created_at      TIMESTAMPTZ DEFAULT NOW()
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (numero_cuenta),
+    UNIQUE (cbu)
 );
 
 -- ------------------------------------------------------------

@@ -10,7 +10,7 @@ const { uuidLike } = require('../utils/schemas');
 
 const router = createCrudRouter(entities.transacciones);
 
-const transferSchema = z.object({
+const esquemaDeTransferencia = z.object({
   tipo_transaccion_id: uuidLike,
   cuenta_origen_id: uuidLike,
   cuenta_destino_id: uuidLike.nullable().optional(),
@@ -21,7 +21,7 @@ const transferSchema = z.object({
 
 router.post(
   '/operar',
-  validate(transferSchema),
+  validate(esquemaDeTransferencia),
   asyncHandler(async (req, res) => {
     const client = await pool.connect();
 
@@ -37,21 +37,21 @@ router.post(
 
       await client.query('BEGIN');
 
-      const originResult = await client.query(
+      const resultadoDeOrigen = await client.query(
         'SELECT * FROM cuentas WHERE id = $1 FOR UPDATE',
         [cuenta_origen_id]
       );
 
-      if (originResult.rowCount === 0) {
+      if (resultadoDeOrigen.rowCount === 0) {
         throw new HttpError(404, `No existe la cuenta de origen ${cuenta_origen_id}.`);
       }
 
-      const origin = originResult.rows[0];
-      if (!origin.activa) {
+      const origen = resultadoDeOrigen.rows[0];
+      if (!origen.activa) {
         throw new HttpError(400, 'La cuenta de origen no está activa.');
       }
 
-      if (Number(origin.saldo) < monto) {
+      if (Number(origen.saldo) < monto) {
         throw new HttpError(400, 'Saldo insuficiente para realizar la operación.');
       }
 
@@ -59,37 +59,37 @@ router.post(
         throw new HttpError(400, 'La cuenta de destino no puede ser la misma que la cuenta de origen.');
       }
 
-      let destination = null;
+      let destino = null;
 
       if (cuenta_destino_id) {
-        const destinationResult = await client.query(
+        const resultadoDeDestino = await client.query(
           'SELECT * FROM cuentas WHERE id = $1 FOR UPDATE',
           [cuenta_destino_id]
         );
 
-        if (destinationResult.rowCount === 0) {
+        if (resultadoDeDestino.rowCount === 0) {
           throw new HttpError(404, `No existe la cuenta de destino ${cuenta_destino_id}.`);
         }
 
-        destination = destinationResult.rows[0];
-        if (!destination.activa) {
+        destino = resultadoDeDestino.rows[0];
+        if (!destino.activa) {
           throw new HttpError(400, 'La cuenta de destino no está activa.');
         }
 
-        const accountTypeResult = await client.query(
+        const resultadoDelTipoDeCuenta = await client.query(
           'SELECT limite_transferencia FROM tipos_cuenta WHERE id = $1',
-          [origin.tipo_cuenta_id]
+          [origen.tipo_cuenta_id]
         );
 
-        const transferLimit = accountTypeResult.rows[0]?.limite_transferencia;
-        if (transferLimit !== null && transferLimit !== undefined && monto > Number(transferLimit)) {
+        const limiteDeTransferencia = resultadoDelTipoDeCuenta.rows[0]?.limite_transferencia;
+        if (limiteDeTransferencia !== null && limiteDeTransferencia !== undefined && monto > Number(limiteDeTransferencia)) {
           throw new HttpError(400, 'El monto supera el límite de transferencia permitido para la cuenta.');
         }
       }
 
       await client.query('UPDATE cuentas SET saldo = saldo - $1 WHERE id = $2', [monto, cuenta_origen_id]);
 
-      if (destination) {
+      if (destino) {
         await client.query('UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2', [monto, cuenta_destino_id]);
       }
 

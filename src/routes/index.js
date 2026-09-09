@@ -4,7 +4,7 @@ const entities = require('../modules/entities');
 const relationsRouter = require('../modules/relations-router');
 const transaccionesRouter = require('../modules/transacciones-router');
 const chatbotRouter = require('../modules/chatbot-router');
-
+       router.use('/chatbot', chatbotRouter);
 const router = express.Router();
 
 router.get('/health', (_req, res) => {

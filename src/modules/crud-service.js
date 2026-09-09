@@ -1,8 +1,9 @@
 const pool = require('../db/pool');
 const HttpError = require('../utils/http-error');
 const { buildFilters, buildInsertQuery, buildUpdateQuery } = require('../utils/sql');
+const { generarCbu, generarNumeroDeCuenta, normalizarMonedaDeCuenta } = require('../utils/cuentas');
 
-async function list(entityConfig, queryParams = {}) {
+async function listar(entityConfig, queryParams = {}) {
   const page = Number(queryParams.page || 1);
   const limit = Math.min(Number(queryParams.limit || 20), 100);
   const offset = (page - 1) * limit;
@@ -25,7 +26,7 @@ async function list(entityConfig, queryParams = {}) {
   };
 }
 
-async function getById(entityConfig, id) {
+async function obtenerPorId(entityConfig, id) {
   const result = await pool.query(`SELECT ${entityConfig.select} FROM ${entityConfig.table} WHERE id = $1`, [id]);
 
   if (result.rowCount === 0) {
@@ -35,21 +36,54 @@ async function getById(entityConfig, id) {
   return result.rows[0];
 }
 
-async function create(entityConfig, payload) {
-  const query = buildInsertQuery(entityConfig.table, payload);
+async function crear(entityConfig, payload) {
+  const payloadNormalizado = { ...payload };
+
+  if (entityConfig.table === 'cuentas') {
+    const moneda = normalizarMonedaDeCuenta(payloadNormalizado.moneda ?? 'ARS');
+    payloadNormalizado.moneda = moneda;
+
+    if (!payloadNormalizado.numero_cuenta) {
+      payloadNormalizado.numero_cuenta = generarNumeroDeCuenta(moneda);
+    }
+
+    if (!payloadNormalizado.cbu) {
+      payloadNormalizado.cbu = generarCbu(moneda);
+    }
+
+    if (payloadNormalizado.saldo === undefined) {
+      payloadNormalizado.saldo = '0.00';
+    }
+
+    const existingCbu = await pool.query('SELECT id FROM cuentas WHERE cbu = $1 LIMIT 1', [payloadNormalizado.cbu]);
+    if (existingCbu.rowCount > 0) {
+      throw new HttpError(409, 'Ya existe una cuenta con ese CBU.');
+    }
+
+    const cuentaExistente = await pool.query(
+      'SELECT id FROM cuentas WHERE persona_id = $1 AND moneda = $2 LIMIT 1',
+      [payloadNormalizado.persona_id, moneda]
+    );
+
+    if (cuentaExistente.rowCount > 0) {
+      throw new HttpError(409, `La persona ya tiene una cuenta en ${moneda}.`);
+    }
+  }
+
+  const query = buildInsertQuery(entityConfig.table, payloadNormalizado);
   const result = await pool.query(query);
   return result.rows[0];
 }
 
-async function update(entityConfig, id, payload) {
-  await getById(entityConfig, id);
+async function actualizar(entityConfig, id, payload) {
+  await obtenerPorId(entityConfig, id);
 
   const query = buildUpdateQuery(entityConfig.table, id, payload);
   const result = await pool.query(query);
   return result.rows[0];
 }
 
-async function remove(entityConfig, id) {
+async function eliminar(entityConfig, id) {
   const result = await pool.query(`DELETE FROM ${entityConfig.table} WHERE id = $1 RETURNING *`, [id]);
 
   if (result.rowCount === 0) {
@@ -60,9 +94,9 @@ async function remove(entityConfig, id) {
 }
 
 module.exports = {
-  create,
-  getById,
-  list,
-  remove,
-  update,
+  actualizar,
+  crear,
+  eliminar,
+  listar,
+  obtenerPorId,
 };

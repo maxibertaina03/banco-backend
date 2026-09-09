@@ -1,9 +1,15 @@
 const { z } = require('zod');
 const { uuidLike } = require('../utils/schemas');
+const { normalizarMonedaDeCuenta } = require('../utils/cuentas');
 
 const uuid = uuidLike;
 const numericString = z.union([z.string(), z.number()]).transform((value) => String(value));
 const optionalNullableString = z.string().trim().min(1).nullable().optional();
+const esquemaDeMonedaDeCuenta = z
+  .string()
+  .trim()
+  .transform((value) => normalizarMonedaDeCuenta(value))
+  .pipe(z.enum(['ARS', 'USD']));
 
 const entities = {
   personas: {
@@ -66,12 +72,13 @@ const entities = {
     table: 'cuentas',
     orderBy: 'created_at DESC',
     select: '*',
-    allowedFilters: ['persona_id', 'tipo_cuenta_id', 'activa', 'numero_cuenta', 'cbu'],
+    allowedFilters: ['persona_id', 'tipo_cuenta_id', 'activa', 'numero_cuenta', 'cbu', 'moneda'],
     createSchema: z.object({
       persona_id: uuid,
       tipo_cuenta_id: uuid,
-      numero_cuenta: z.string().trim().min(1),
-      cbu: z.string().trim().min(1),
+      numero_cuenta: z.string().trim().min(1).optional(),
+      cbu: z.string().trim().min(1).optional(),
+      moneda: esquemaDeMonedaDeCuenta.default('ARS'),
       saldo: numericString.optional(),
       activa: z.boolean().optional(),
     }),
