@@ -35,8 +35,16 @@ function buildMocks() {
     sincronizarTransaccionesEntrantes: vi.fn(),
   };
   const escribirLogDeAuditoria = vi.fn().mockResolvedValue(undefined);
+  // Sin este stub, la validación de moneda intentaría consultar el Banco Central
+  // de verdad en cada test. Por defecto deja pasar, que es lo que hacía el
+  // service antes de que existieran las cuentas en dólares.
+  const monedas = {
+    resolverMonedaDeCbu: vi.fn().mockResolvedValue(null),
+    validarMonedasCompatibles: vi.fn().mockResolvedValue({ verificado: false }),
+    validarEntrante: vi.fn().mockResolvedValue({ acreditable: true, motivo: null }),
+  };
 
-  return { pool, mockClient, centralBankService, escribirLogDeAuditoria };
+  return { pool, mockClient, centralBankService, escribirLogDeAuditoria, monedas };
 }
 
 function buildService(deps) {

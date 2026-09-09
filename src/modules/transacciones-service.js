@@ -16,10 +16,12 @@ const HttpError = require('../utils/http-error');
 const { esUsuarioInterno } = require('../utils/access-control');
 const { createTTLCache } = require('../utils/ttl-cache');
 const { Dinero } = require('../utils/dinero');
+const realMonedas = require('./monedas');
 const q = require('./transacciones/transacciones-queries');
 const { findStringInPayload, findFullNameInPayload } = require('./transacciones/transacciones-helpers');
 
 function createTransaccionesService({
+  monedas = realMonedas,
   pool = realPool,
   centralBankService = realCentralBankService,
   escribirLogDeAuditoria = realWriteAuditLog,
@@ -99,6 +101,12 @@ function createTransaccionesService({
     if (origin.cbu === destination.cbu) {
       throw new HttpError(400, 'El CBU origen no puede ser igual al CBU destino.');
     }
+
+    // El Banco Central no valida monedas: su POST /transactions no tiene campo
+    // `moneda` y movería el importe tal cual entre una caja en pesos y una en
+    // dólares. La validación es nuestra. Va antes de tocar saldos y antes de
+    // llamar al Central, para que una transferencia inválida no llegue a existir.
+    await monedas.validarMonedasCompatibles(origin.moneda, destination.cbu, undefined);
 
     await validarLimiteDeTransferencia(client, origin, importeExacto);
 
