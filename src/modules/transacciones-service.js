@@ -654,7 +654,26 @@ function createTransaccionesService({
     return { page, limit, count: result.rows.length, data: result.rows };
   }
 
+  /**
+   * Transferencia desde la perspectiva del cliente.
+   *
+   * Envuelve a `operate` resolviendo el tipo de transacción internamente: el
+   * cliente no tiene por qué conocer el UUID de "transferencia". Es la forma
+   * que declara el contrato, y la que debería usar el frontend nuevo.
+   */
+  async function crearTransferencia(payload) {
+    const client = await pool.connect();
+    let idTipo;
+    try {
+      idTipo = await obtenerIdTipoTransferencia(client);
+    } finally {
+      client.release();
+    }
+    return operate({ ...payload, tipo_transaccion_id: idTipo });
+  }
+
   return {
+    crearTransferencia,
     crearExtraccion,
     crearCambioDeDivisa,
     listarMovimientosDeCuenta,

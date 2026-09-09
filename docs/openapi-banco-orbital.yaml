@@ -54,6 +54,18 @@ info:
     `cbuOrigen`, `saldoOrigen`). Ese contrato lo define su API, y traducirlo de este lado
     sólo agrega una capa de traducción que confunde al depurar.
 
+    ## Rutas heredadas que este documento no describe
+
+    El backend expone además algunas rutas anteriores a este contrato, que el
+    portal actual consume y por eso se mantienen: `/api/transacciones/operar`
+    (equivale a `/transferir` pero exige el `tipo_transaccion_id` explícito),
+    `/api/cuentas/{id}/transacciones` (el listado sin paginar),
+    `/api/personas/{id}/full`, `/api/personas/{id}/cuentas/apertura-basica` y el
+    CRUD genérico de cada entidad.
+
+    **Para código nuevo, usar las de este documento.** Las heredadas se van a ir
+    retirando a medida que el portal migre.
+
     ## Idempotencia
 
     Los endpoints marcados con `Idempotency-Key` aceptan un UUID v4 por header. Si se
@@ -1312,6 +1324,62 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/PlazoFijo' }
         '401': { $ref: '#/components/responses/NoAutorizado' }
+
+  /api/prestamos/actualizar-mora:
+    post:
+      tags: [Préstamos]
+      summary: Barrido de mora
+      description: |
+        Recorre los préstamos con cuotas vencidas hace más de 31 días, los marca
+        `en_mora` y **reinforma la situación al Banco Central**.
+
+        Es la pieza que hace que la central de deudores sirva de verdad. El
+        cliente que **deja** de pagar no dispara ninguna acción, así que sin este
+        barrido el Banco Central seguiría informando situación 1 sobre alguien
+        que hace medio año no aparece.
+
+        Se dispara a mano o desde un cron externo. Se descartó un `setInterval`
+        porque se duplica si corren dos instancias y no se puede testear.
+
+        Sólo roles internos.
+      responses:
+        '200':
+          description: Resumen del barrido.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revisados: { type: integer, description: Préstamos con cuotas vencidas encontrados }
+                  en_mora: { type: integer, description: Marcados en mora }
+                  informados: { type: integer, description: Informados al Banco Central con éxito }
+                  errores: { type: integer, description: Los que el Central rechazó o no respondió }
+              example: { revisados: 1, en_mora: 1, informados: 1, errores: 0 }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+
+  /api/plazos-fijos/marcar-vencidos:
+    post:
+      tags: [Inversiones]
+      summary: Marcar los plazos fijos que llegaron a su vencimiento
+      description: |
+        Pasa a `vencido` los plazos fijos vigentes cuya fecha ya llegó. Es lo que
+        hace que el filtro `?estado=vencido` diga qué hay que acreditar hoy.
+
+        Igual que el barrido de mora: se dispara a mano o por cron. Sólo roles
+        internos.
+      responses:
+        '200':
+          description: Cantidad de plazos fijos marcados.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vencidos: { type: integer }
+              example: { vencidos: 3 }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
 
   /api/plazos-fijos/{plazoFijoId}/acreditacion:
     post:

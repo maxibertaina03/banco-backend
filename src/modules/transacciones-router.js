@@ -57,6 +57,20 @@ const depositSchema = z.object({
   descripcion: z.string().trim().min(1).max(140).nullable().optional(),
 });
 
+// Forma del contrato: sin `tipo_transaccion_id`, que el service resuelve solo.
+const transferirSchema = z
+  .object({
+    cuenta_origen_id: uuidLike,
+    cuenta_destino_id: uuidLike.nullable().optional(),
+    destinatario_id: uuidLike.nullable().optional(),
+    cbu_destino: z.string().trim().min(1).nullable().optional(),
+    monto: z.coerce.number().positive(),
+    descripcion: z.string().trim().min(1).max(140).nullable().optional(),
+  })
+  .refine((d) => Boolean(d.cuenta_destino_id || d.destinatario_id || d.cbu_destino), {
+    message: 'Debes indicar una cuenta destino, un destinatario o un CBU de destino.',
+  });
+
 const extraccionSchema = z.object({
   cuenta_origen_id: uuidLike,
   monto: z.coerce.number().positive(),
@@ -185,6 +199,22 @@ router.post(
       destinationName: result.destinationName,
       destinationCbu: result.destinationCbu,
     });
+  })
+);
+
+// Transferencia, con la forma que declara el contrato. `/operar` se mantiene
+// porque el portal actual la consume y pide el tipo de transacción explícito.
+router.post(
+  '/transferir',
+  idempotency,
+  validate(transferirSchema),
+  asyncHandler(async (req, res) => {
+    const result = await service.crearTransferencia({
+      ...req.body,
+      usuarioActual: req.currentUser,
+      ipAddress: req.ip || null,
+    });
+    res.status(201).json(aTransaccionPublica(result.transaccion));
   })
 );
 

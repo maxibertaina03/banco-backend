@@ -11,6 +11,7 @@ const centralBankService = require('./central-bank-service');
 const cuentasService = require('./cuentas-service');
 const transaccionesService = require('./transacciones-service');
 const tarjetasService = require('./tarjetas-service');
+const mercadoService = require('./mercado-service');
 const {
   aPersonaPublica,
   aUsuarioPublico,
@@ -79,6 +80,24 @@ async function assertCanAccessUsuarioAuditoria(req, userId) {
     throw new HttpError(403, 'No tienes permisos para consultar la auditoría de otro usuario.');
   }
 }
+
+// Cotización del dólar para MOSTRAR. Devuelve el último valor conocido si
+// DolarAPI está caída, marcándolo en `desde_respaldo`. Para operar, el service
+// usa `obtenerCotizacionParaOperar()`, que en ese caso tira 503.
+router.get(
+  '/catalogos/cotizacion',
+  asyncHandler(async (_req, res) => {
+    res.json(await mercadoService.obtenerCotizacionDolar());
+  })
+);
+
+// Tasas de referencia, ya normalizadas a porcentaje.
+router.get(
+  '/catalogos/tasas',
+  asyncHandler(async (_req, res) => {
+    res.json(await mercadoService.obtenerTasasReferencia());
+  })
+);
 
 router.get(
   '/catalogos/transferencias',
