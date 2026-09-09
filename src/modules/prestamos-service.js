@@ -24,6 +24,7 @@ const HttpError = require('../utils/http-error');
 const { puedeOperarSobrePersona, esUsuarioInterno: esUsuarioInternoLocal } = require('../utils/access-control');
 const calculo = require('./calculo-financiero');
 const { hoyLocal } = require('../utils/fechas');
+const movimientos = require('./movimientos');
 
 // Una cuota entra en mora a los 31 días corridos del vencimiento. Es la regla
 // acordada, y coincide con el umbral de situación 1 del BCRA.
@@ -146,11 +147,17 @@ function createPrestamosService({
         params
       );
 
-      // Acreditar el capital en la cuenta del cliente.
-      await client.query('UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2', [
-        Dinero.desde(simulacion.capital).aString(),
+      // Acreditar el capital y dejar el movimiento en el extracto: sin esto el
+      // cliente ve su saldo saltar sin explicación.
+      const cbuCuenta = await client.query('SELECT cbu FROM cuentas WHERE id = $1', [cuentaId]);
+      await movimientos.acreditar(client, {
         cuentaId,
-      ]);
+        cbu: cbuCuenta.rows[0]?.cbu ?? null,
+        monto: Dinero.desde(simulacion.capital).aString(),
+        tipo: 'prestamo',
+        canal: 'prestamo_acreditado',
+        descripcion: `Acreditación de préstamo a ${cuotas} cuotas`,
+      });
 
       await escribirLogDeAuditoria(client, {
         usuarioId: usuarioActual?.id,
@@ -226,10 +233,15 @@ function createPrestamosService({
         throw new HttpError(422, 'Saldo insuficiente para pagar la cuota.');
       }
 
-      await client.query('UPDATE cuentas SET saldo = saldo - $1 WHERE id = $2', [
-        montoCuota.aString(),
-        prestamo.cuenta_id,
-      ]);
+      const cbuPago = await client.query('SELECT cbu FROM cuentas WHERE id = $1', [prestamo.cuenta_id]);
+      await movimientos.debitar(client, {
+        cuentaId: prestamo.cuenta_id,
+        cbu: cbuPago.rows[0]?.cbu ?? null,
+        monto: montoCuota.aString(),
+        tipo: 'prestamo',
+        canal: 'cuota_prestamo',
+        descripcion: `Cuota ${cuota.numero} de ${prestamo.cuotas} del préstamo`,
+      });
       await client.query(
         `UPDATE cuotas_prestamo SET estado = 'pagada', fecha_pago = CURRENT_DATE WHERE id = $1`,
         [cuota.id]
@@ -297,10 +309,15 @@ function createPrestamosService({
         throw new HttpError(422, `Saldo insuficiente para precancelar. Hacen falta ${aPagar.aString()}.`);
       }
 
-      await client.query('UPDATE cuentas SET saldo = saldo - $1 WHERE id = $2', [
-        aPagar.aString(),
-        prestamo.cuenta_id,
-      ]);
+      const cbuPre = await client.query('SELECT cbu FROM cuentas WHERE id = $1', [prestamo.cuenta_id]);
+      await movimientos.debitar(client, {
+        cuentaId: prestamo.cuenta_id,
+        cbu: cbuPre.rows[0]?.cbu ?? null,
+        monto: aPagar.aString(),
+        tipo: 'prestamo',
+        canal: 'cuota_prestamo',
+        descripcion: 'Precancelación del préstamo',
+      });
       // Las cuotas futuras se marcan pagadas: el capital ya se saldó y sus
       // intereses no se cobran, que es justamente el beneficio de precancelar.
       await client.query(

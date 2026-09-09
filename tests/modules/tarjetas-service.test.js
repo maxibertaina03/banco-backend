@@ -37,6 +37,14 @@ function armar({ tarjeta = CREDITO, consumido = '0', cuenta = { id: 'c-ars', sal
       if (t.includes('FROM personas')) return { rows: [{ id: 'p1' }], rowCount: 1 };
       if (t.includes('FROM cuentas')) return { rows: [cuenta], rowCount: cuenta ? 1 : 0 };
       if (t.includes('SUM(monto)')) return { rows: [{ total: consumido }], rowCount: 1 };
+      // El consumo de débito registra el movimiento en el extracto, así que el
+      // mock tiene que conocer las consultas que eso implica.
+      if (t.includes('FROM tipos_transaccion')) return { rows: [{ id: 'tt-consumo' }], rowCount: 1 };
+      if (t.includes('SELECT cbu FROM cuentas')) return { rows: [{ cbu: '1'.repeat(22) }], rowCount: 1 };
+      if (t.includes('INSERT INTO transacciones')) {
+        escrituras.push(['movimiento', params[3]]);
+        return { rows: [{ id: 'mov-1' }], rowCount: 1 };
+      }
       if (t.includes('UPDATE cuentas')) { escrituras.push(['debito-cuenta', params[0]]); return { rows: [], rowCount: 1 }; }
       if (t.includes('INSERT INTO autorizaciones')) {
         escrituras.push(['autorizacion', params[4]]);
@@ -119,6 +127,13 @@ describe('autorizarConsumo — débito', () => {
 
     expect(a.estado).toBe('aprobada');
     expect(escrituras).toContainEqual(['debito-cuenta', '5000.00']);
+  });
+
+  it('deja el movimiento en el extracto, no sólo el débito', async () => {
+    // Sin esto el cliente veía bajar el saldo sin nada que lo explicara.
+    const { servicio, escrituras } = armar({ tarjeta: DEBITO });
+    await servicio.autorizarConsumo({ tarjetaId: 't-deb', comercio: 'Kiosco', monto: 5000 });
+    expect(escrituras).toContainEqual(['movimiento', '5000.00']);
   });
 
   it('rechaza si no alcanza el saldo, y no debita nada', async () => {

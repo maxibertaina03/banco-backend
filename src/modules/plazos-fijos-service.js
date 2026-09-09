@@ -16,6 +16,7 @@ const HttpError = require('../utils/http-error');
 const { puedeOperarSobrePersona, esUsuarioInterno: esUsuarioInternoLocal } = require('../utils/access-control');
 const calculo = require('./calculo-financiero');
 const { hoyLocal, sumarDias, aFechaSimple, diasEntre } = require('../utils/fechas');
+const movimientos = require('./movimientos');
 
 // Tasa que se reconoce al que rompe el plazo antes de tiempo. Es baja a
 // propósito: si el rescate anticipado rindiera igual que el plazo cumplido,
@@ -85,10 +86,15 @@ function createPlazosFijosService({
       const fechaConstitucion = hoyLocal();
       const fechaVencimiento = sumarDias(fechaConstitucion, dias);
 
-      await client.query('UPDATE cuentas SET saldo = saldo - $1 WHERE id = $2', [
-        capitalExacto.aString(),
+      const cbuCta = await client.query('SELECT cbu FROM cuentas WHERE id = $1', [cuentaId]);
+      await movimientos.debitar(client, {
         cuentaId,
-      ]);
+        cbu: cbuCta.rows[0]?.cbu ?? null,
+        monto: capitalExacto.aString(),
+        tipo: 'plazo_fijo',
+        canal: 'plazo_fijo_constitucion',
+        descripcion: `Constitución de plazo fijo a ${dias} días`,
+      });
 
       const r = await client.query(
         `INSERT INTO plazos_fijos (
@@ -177,10 +183,17 @@ function createPlazosFijosService({
         estadoFinal = 'cancelado_anticipado';
       }
 
-      await client.query('UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2', [
-        totalAcreditar.aString(),
-        pf.cuenta_id,
-      ]);
+      const cbuAcr = await client.query('SELECT cbu FROM cuentas WHERE id = $1', [pf.cuenta_id]);
+      await movimientos.acreditar(client, {
+        cuentaId: pf.cuenta_id,
+        cbu: cbuAcr.rows[0]?.cbu ?? null,
+        monto: totalAcreditar.aString(),
+        tipo: 'plazo_fijo',
+        canal: 'plazo_fijo_acreditacion',
+        descripcion: estadoFinal === 'cancelado_anticipado'
+          ? `Rescate anticipado de plazo fijo a los ${diasTranscurridos} días`
+          : 'Acreditación de plazo fijo al vencimiento',
+      });
 
       const actualizado = await client.query(
         `UPDATE plazos_fijos

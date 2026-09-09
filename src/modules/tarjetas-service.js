@@ -15,6 +15,7 @@ const { escribirLogDeAuditoria: realEscribirLog } = require('../utils/audit');
 const { Dinero } = require('../utils/dinero');
 const HttpError = require('../utils/http-error');
 const { esUsuarioInterno } = require('../utils/access-control');
+const movimientos = require('./movimientos');
 
 // Prefijo de los números que emitimos. En un sistema real el BIN lo asigna la
 // marca; acá es una convención nuestra que sólo tiene que ser estable.
@@ -236,10 +237,15 @@ function createTarjetasService({
       }
 
       if (cuentaADebitar) {
-        await client.query('UPDATE cuentas SET saldo = saldo - $1 WHERE id = $2', [
-          montoExacto.aString(),
-          cuentaADebitar,
-        ]);
+        const cbuCta = await client.query('SELECT cbu FROM cuentas WHERE id = $1', [cuentaADebitar]);
+        await movimientos.debitar(client, {
+          cuentaId: cuentaADebitar,
+          cbu: cbuCta.rows[0]?.cbu ?? null,
+          monto: montoExacto.aString(),
+          tipo: 'consumo_tarjeta',
+          canal: 'consumo_tarjeta',
+          descripcion: `Consumo con tarjeta en ${comercio}`,
+        });
       }
 
       const autorizacion = await client.query(

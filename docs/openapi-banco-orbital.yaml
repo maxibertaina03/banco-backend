@@ -576,6 +576,107 @@ paths:
         '403': { $ref: '#/components/responses/Prohibido' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
 
+  /api/cuentas/{cuentaId}/resumen-gastos:
+    get:
+      tags: [Cuentas]
+      summary: Gastos e ingresos del mes por categoría
+      description: |
+        Agrupa los movimientos del período en categorías legibles, ordenadas de
+        mayor a menor: lo primero que ve el cliente es dónde se le va la plata.
+
+        **La categoría no es una columna**, se deriva del canal del movimiento y
+        de su dirección respecto de esta cuenta. Una transferencia que sale es
+        "Transferencias enviadas"; la misma que entra, "Transferencias
+        recibidas".
+      parameters:
+        - name: cuentaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: periodo
+          in: query
+          required: false
+          schema: { type: string, pattern: '^\d{4}-\d{2}$' }
+          description: Mes en formato `YYYY-MM`. Por defecto, el actual.
+      responses:
+        '200':
+          description: Resumen del período.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  periodo: { type: string, example: '2026-09' }
+                  total_gastos: { $ref: '#/components/schemas/Monto' }
+                  total_ingresos: { $ref: '#/components/schemas/Monto' }
+                  balance:
+                    allOf: [{ $ref: '#/components/schemas/Monto' }]
+                    description: Ingresos menos gastos. Puede ser negativo.
+                  categorias:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        categoria: { type: string, example: Consumos con tarjeta }
+                        tipo: { type: string, enum: [gasto, ingreso] }
+                        total: { $ref: '#/components/schemas/Monto' }
+                        cantidad: { type: integer, example: 3 }
+              example:
+                periodo: '2026-09'
+                total_gastos: 245903.49
+                total_ingresos: 250000
+                balance: 4096.51
+                categorias:
+                  - { categoria: Préstamos recibidos, tipo: ingreso, total: 200000, cantidad: 1 }
+                  - { categoria: Compra de moneda, tipo: gasto, total: 153000, cantidad: 1 }
+        '400': { $ref: '#/components/responses/ErrorValidacion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+
+  /api/cuentas/{cuentaId}/movimientos/exportar:
+    get:
+      tags: [Cuentas]
+      summary: Exportar los movimientos a CSV
+      description: |
+        Devuelve el extracto como archivo CSV para descargar, no como JSON: está
+        pensado para abrirse en una planilla.
+
+        El archivo lleva BOM UTF-8 al principio para que Excel en Windows
+        reconozca la codificación y no rompa los acentos, y escapa comas y
+        comillas según RFC 4180.
+
+        La cantidad de filas viaja en el header `X-Total-Filas`.
+      parameters:
+        - name: cuentaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: desde
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: hasta
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Archivo CSV.
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+              description: 'Trae el nombre sugerido: `movimientos-<cuenta>-<fecha>.csv`'
+            X-Total-Filas:
+              schema: { type: integer }
+          content:
+            text/csv:
+              schema: { type: string }
+              example: |
+                Fecha,Tipo,Categoria,Descripcion,Signo,Monto,Estado
+                2026-09-08,consumo_tarjeta,Consumos con tarjeta,Consumo en Kiosco,-,3500.00,completada
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+
   # ──────────────────────────── Transacciones ────────────────────────────
   /api/transacciones:
     get:

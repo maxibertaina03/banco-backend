@@ -12,6 +12,7 @@ const cuentasService = require('./cuentas-service');
 const transaccionesService = require('./transacciones-service');
 const tarjetasService = require('./tarjetas-service');
 const mercadoService = require('./mercado-service');
+const reportesService = require('./reportes-service');
 const {
   aPersonaPublica,
   aUsuarioPublico,
@@ -404,6 +405,45 @@ router.get(
 // (`/api/cuentas/{cuentaId}/movimientos`) y la que debería usar el frontend
 // nuevo. `/cuentas/:id/transacciones` queda como está porque el portal ya la
 // consume y devuelve el listado completo sin paginar.
+// Gastos e ingresos del mes, agrupados por categoría. La categoría se deriva
+// del canal del movimiento y de su dirección respecto de esta cuenta.
+router.get(
+  '/cuentas/:id/resumen-gastos',
+  validate(paramsSchema, 'params'),
+  validate(z.object({ periodo: z.string().regex(/^\d{4}-\d{2}$/).optional() }), 'query'),
+  asyncHandler(async (req, res) => {
+    await assertCanAccessCuenta(req, req.params.id);
+    res.json(await reportesService.resumenDeGastos({
+      cuentaId: req.params.id,
+      periodo: req.query.periodo,
+    }));
+  })
+);
+
+// Exportación en CSV. Se devuelve como descarga, no como JSON: el cliente lo
+// abre en una planilla, no lo procesa.
+router.get(
+  '/cuentas/:id/movimientos/exportar',
+  validate(paramsSchema, 'params'),
+  validate(z.object({ desde: z.iso.date().optional(), hasta: z.iso.date().optional() }), 'query'),
+  asyncHandler(async (req, res) => {
+    await assertCanAccessCuenta(req, req.params.id);
+
+    const { csv, filas } = await reportesService.exportarMovimientos({
+      cuentaId: req.params.id,
+      desde: req.query.desde ?? null,
+      hasta: req.query.hasta ?? null,
+    });
+
+    const nombre = `movimientos-${req.params.id.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+    res.setHeader('X-Total-Filas', String(filas));
+    // BOM para que Excel en Windows reconozca el UTF-8 y no rompa los acentos.
+    res.send(`\uFEFF${csv}`);
+  })
+);
+
 router.get(
   '/cuentas/:id/movimientos',
   validate(paramsSchema, 'params'),
