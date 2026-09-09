@@ -169,31 +169,39 @@ En orden, siguiendo las fases:
 
 ## Maxi
 
-### 1. Fase 2, cimientos — *bloquea todo lo demás del backend*
+### 1. Fase 2, cimientos — ✅ **terminada y verificada** (8/9/2026)
 
-Va primero y va solo. Cuatro cosas:
+Probada contra el ambiente `test` del Banco Central, no con mocks:
 
-- **Migración de cuentas multi-moneda.** Una persona pasa a tener N cuentas, cada una con
-  su CBU, su moneda y su alias. La cuenta en pesos actual se marca como principal.
-  **Guardar siempre el CBU en USD localmente**: el Banco Central no lo puede listar, y si
-  se pierde el único modo de recuperarlo es repetir `POST /accounts`.
-- **Las seis rutas nuevas del Central** en `central-bank-client.js`, que ya trae el retry
-  y el mapeo de errores. Resolver la moneda de un CBU con `GET /accounts/{cbu}`, que
-  sirve para las dos monedas — verificado contra el ambiente `test`.
-- **Adapter de mercado** en `src/modules/mercado/`: DolarAPI y ArgentinaDatos, con caché
-  TTL, timeout y valor de respaldo. **Acá se normaliza la TNA** de fracción decimal a
-  porcentaje: es el punto donde el sistema se rompe silenciosamente si se olvida.
-- **Chequeo crediticio** contra `GET /central-deudores/{dni}`, usado en el alta de cuenta
-  **y** al otorgar préstamos. Situación 3 o peor bloquea las dos cosas.
+| Pieza | Dónde | Verificación |
+|---|---|---|
+| Migración multi-moneda | `migrations/20260908_cuentas_multimoneda.sql` | Aplicada. Toda persona con exactamente una cuenta principal |
+| Seis rutas del Central | `central-bank-service.js` | Caja en USD creada, CBU `…001800` guardado |
+| Adapter de mercado | `mercado-service.js` | Cotización 1480/1530; tasas 64,4 % y 20,12 % ya normalizadas |
+| Chequeo crediticio | `riesgo-crediticio.js` | DNI en situación 4 → 403 |
+| Apertura de cuenta | `cuentas-service.js` | Idempotente; el índice único rechaza la segunda cuenta USD |
+
+**Dos hallazgos que simplificaron el trabajo:** la tabla ya soportaba N cuentas
+por persona, así que la migración fue sólo agregar `moneda` y `principal`; y
+`GET /accounts/{cbu}` del Central resuelve las dos monedas pese a que su
+documentación diga lo contrario, así que no hizo falta el fallback planeado.
+
+**Una decisión tomada sobre la marcha:** si DolarAPI está caída, la compra y
+venta de dólares **se bloquea** con 503. Mostrar un precio viejo en pantalla es
+aceptable; cobrarle al cliente a ese precio no. Por eso hay dos funciones,
+`obtenerCotizacionDolar()` para mostrar y `obtenerCotizacionParaOperar()` para
+operar.
 
 **Definición de terminado:** se abre una caja en USD, se recupera su CBU repitiendo
 `POST /accounts`, y un DNI en situación 4 rebota las dos operaciones.
 
-### 2. Backend de las fases 3 a 5 — *después de la fase 2*
+### 2. Backend de las fases 3 a 5 — *en curso*
 
-- **Cuentas y cambio.** Depósitos, extracciones, movimientos y compra/venta de dólares a
-  la cotización `oficial`. Más la **validación de moneda en toda transferencia**, de
-  salida y de entrada, porque el Central no la hace.
+- **Validación de moneda en transferencias** — ✅ hecha, en `monedas.js`. Cubre los
+  dos sentidos: al enviar tira 400 antes de tocar saldos; al recibir no acredita y
+  deja constancia, porque el dinero ya salió del otro banco y no se puede rechazar.
+- **Cuentas y cambio.** Faltan depósitos, extracciones, movimientos paginados y la
+  compra/venta de dólares a la cotización `oficial`.
 - **Tarjetas.** Emisión, autorización de consumos contra saldo o límite, bloqueo, resumen
   con CFT.
 - **Préstamos y plazos fijos.** Sistema francés con `Dinero`, que ya está escrito y
