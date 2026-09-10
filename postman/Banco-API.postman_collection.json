@@ -77,6 +77,22 @@
     {
       "key": "registerToken",
       "value": "REEMPLAZAR_REGISTER_TOKEN"
+    },
+    {
+      "key": "cuentaUsdId",
+      "value": ""
+    },
+    {
+      "key": "tarjetaId",
+      "value": ""
+    },
+    {
+      "key": "prestamoId",
+      "value": ""
+    },
+    {
+      "key": "plazoFijoId",
+      "value": ""
     }
   ],
   "item": [
@@ -1662,6 +1678,851 @@
                 "auditoria"
               ]
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cuentas multi-moneda",
+      "item": [
+        {
+          "name": "Abrir caja de ahorro en USD",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/personas/{{personaId}}/cuentas/apertura",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas",
+                "{{personaId}}",
+                "cuentas",
+                "apertura"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"moneda\": \"USD\"\n}"
+            },
+            "description": "Abre la caja en dólares y la registra en el Banco Central. Idempotente: repetir devuelve 200 con la existente. GUARDAR EL CBU: el Central no puede listar las cuentas de una persona."
+          }
+        },
+        {
+          "name": "Listar cuentas de la persona",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/personas/{{personaId}}/cuentas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas",
+                "{{personaId}}",
+                "cuentas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Movimientos de la cuenta (paginado)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/cuentas/{{cuentaId}}/movimientos?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cuentas",
+                "{{cuentaId}}",
+                "movimientos"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Resumen de gastos por categoría",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/cuentas/{{cuentaId}}/resumen-gastos?periodo=2026-09",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cuentas",
+                "{{cuentaId}}",
+                "resumen-gastos"
+              ],
+              "query": [
+                {
+                  "key": "periodo",
+                  "value": "2026-09"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Exportar movimientos a CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/cuentas/{{cuentaId}}/movimientos/exportar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cuentas",
+                "{{cuentaId}}",
+                "movimientos",
+                "exportar"
+              ]
+            },
+            "description": "Devuelve un archivo, no JSON. En Postman, Send and Download."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Operaciones",
+      "item": [
+        {
+          "name": "Transferir",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/transacciones/transferir",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "transacciones",
+                "transferir"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_origen_id\": \"{{cuentaId}}\",\n  \"cbu_destino\": \"{{centralCbu}}\",\n  \"monto\": 1500,\n  \"descripcion\": \"Pago de prueba\"\n}"
+            },
+            "description": "Valida que las dos cuentas sean de la misma moneda: el Banco Central NO lo hace."
+          }
+        },
+        {
+          "name": "Depositar efectivo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/transacciones/deposito",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "transacciones",
+                "deposito"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_destino_id\": \"{{cuentaId}}\",\n  \"monto\": 50000,\n  \"descripcion\": \"Depósito en sucursal\"\n}"
+            },
+            "description": "Sólo roles internos."
+          }
+        },
+        {
+          "name": "Extraer efectivo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/transacciones/extraccion",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "transacciones",
+                "extraccion"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_origen_id\": \"{{cuentaId}}\",\n  \"monto\": 10000\n}"
+            },
+            "description": "Sólo roles internos."
+          }
+        },
+        {
+          "name": "Comprar dólares",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/transacciones/cambio",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "transacciones",
+                "cambio"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_origen_id\": \"{{cuentaId}}\",\n  \"cuenta_destino_id\": \"{{cuentaUsdId}}\",\n  \"monto\": 153000\n}"
+            },
+            "description": "Cuentas del mismo titular, monedas distintas. Da 503 si DolarAPI está caída: no se opera con un precio viejo."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tarjetas",
+      "item": [
+        {
+          "name": "Emitir tarjeta de débito",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tarjetas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tarjetas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"persona_id\": \"{{personaId}}\",\n  \"tipo\": \"debito\",\n  \"cuenta_id\": \"{{cuentaId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Emitir tarjeta de crédito",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tarjetas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tarjetas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"persona_id\": \"{{personaId}}\",\n  \"tipo\": \"credito\",\n  \"limite\": 500000\n}"
+            }
+          }
+        },
+        {
+          "name": "Listar tarjetas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/personas/{{personaId}}/tarjetas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas",
+                "{{personaId}}",
+                "tarjetas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Autorizar un consumo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tarjetas/{{tarjetaId}}/autorizaciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tarjetas",
+                "{{tarjetaId}}",
+                "autorizaciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"comercio\": \"Supermercado Norte\",\n  \"monto\": 12500,\n  \"cuotas\": 3\n}"
+            },
+            "description": "201 si aprueba, 422 si rechaza. El rechazo NO es un error: viene con el motivo."
+          }
+        },
+        {
+          "name": "Bloquear tarjeta",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tarjetas/{{tarjetaId}}/bloqueo",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tarjetas",
+                "{{tarjetaId}}",
+                "bloqueo"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accion\": \"bloquear\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Desbloquear tarjeta",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tarjetas/{{tarjetaId}}/bloqueo",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tarjetas",
+                "{{tarjetaId}}",
+                "bloqueo"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accion\": \"desbloquear\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Resumen de crédito",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tarjetas/{{tarjetaId}}/resumen?periodo=2026-09",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tarjetas",
+                "{{tarjetaId}}",
+                "resumen"
+              ],
+              "query": [
+                {
+                  "key": "periodo",
+                  "value": "2026-09"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Préstamos",
+      "item": [
+        {
+          "name": "Simular préstamo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/prestamos/simulaciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "prestamos",
+                "simulaciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"capital\": 1000000,\n  \"cuotas\": 12,\n  \"tna\": 72\n}"
+            },
+            "description": "Sin tna, usa la de referencia de ArgentinaDatos. El ejemplo acordado con los otros bancos da cuota 119277.03 y CFT 101.22."
+          }
+        },
+        {
+          "name": "Solicitar préstamo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/prestamos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "prestamos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_id\": \"{{cuentaId}}\",\n  \"capital\": 1000000,\n  \"cuotas\": 12,\n  \"tna\": 72\n}"
+            },
+            "description": "Acredita el capital e informa la deuda al Banco Central. Situación 3 o peor da 403."
+          }
+        },
+        {
+          "name": "Listar préstamos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/prestamos?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "prestamos"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Detalle con cronograma",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/prestamos/{{prestamoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "prestamos",
+                "{{prestamoId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Pagar la próxima cuota",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/prestamos/{{prestamoId}}/pagos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "prestamos",
+                "{{prestamoId}}",
+                "pagos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "Precancelar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/prestamos/{{prestamoId}}/precancelacion",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "prestamos",
+                "{{prestamoId}}",
+                "precancelacion"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "description": "Paga el capital adeudado, sin los intereses de las cuotas futuras."
+          }
+        },
+        {
+          "name": "Barrido de mora",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/prestamos/actualizar-mora",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "prestamos",
+                "actualizar-mora"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"environment\": \"test\"\n}"
+            },
+            "description": "Marca en mora los préstamos con cuotas vencidas hace más de 31 días y reinforma al Central. Sólo roles internos."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Plazos fijos",
+      "item": [
+        {
+          "name": "Simular plazo fijo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/plazos-fijos/simulaciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "plazos-fijos",
+                "simulaciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"capital\": 500000,\n  \"dias\": 30,\n  \"tna\": 58\n}"
+            },
+            "description": "Interés simple base 365. El ejemplo acordado da 23835.62 de interés."
+          }
+        },
+        {
+          "name": "Constituir",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/plazos-fijos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "plazos-fijos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_id\": \"{{cuentaId}}\",\n  \"capital\": 500000,\n  \"dias\": 30,\n  \"tna\": 58\n}"
+            }
+          }
+        },
+        {
+          "name": "Listar",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/plazos-fijos?estado=vigente",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "plazos-fijos"
+              ],
+              "query": [
+                {
+                  "key": "estado",
+                  "value": "vigente"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Acreditar al vencimiento",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/plazos-fijos/{{plazoFijoId}}/acreditacion",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "plazos-fijos",
+                "{{plazoFijoId}}",
+                "acreditacion"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "Rescate anticipado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/plazos-fijos/{{plazoFijoId}}/acreditacion",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "plazos-fijos",
+                "{{plazoFijoId}}",
+                "acreditacion"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"anticipada\": true\n}"
+            },
+            "description": "Reconoce sólo el interés de los días transcurridos, a tasa de caja de ahorro."
+          }
+        },
+        {
+          "name": "Marcar vencidos",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/plazos-fijos/marcar-vencidos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "plazos-fijos",
+                "marcar-vencidos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "description": "Sólo roles internos."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Catálogos de mercado",
+      "item": [
+        {
+          "name": "Cotización del dólar",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/catalogos/cotizacion",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "catalogos",
+                "cotizacion"
+              ]
+            },
+            "description": "DolarAPI, casa oficial. Si está caída devuelve el último valor conocido con desde_respaldo: true."
+          }
+        },
+        {
+          "name": "Tasas de referencia",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/catalogos/tasas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "catalogos",
+                "tasas"
+              ]
+            },
+            "description": "ArgentinaDatos, YA normalizadas a porcentaje. Ellos las publican como fracción decimal."
           }
         }
       ]
