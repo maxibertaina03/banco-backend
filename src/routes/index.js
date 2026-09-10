@@ -3,16 +3,13 @@ const createCrudRouter = require('../modules/crud-router');
 const entities = require('../modules/entities');
 const relationsRouter = require('../modules/relations-router');
 const transaccionesRouter = require('../modules/transacciones-router');
-const chatbotRouter = require('../modules/chatbot-router');
-       router.use('/chatbot', chatbotRouter);
-const router = express.Router();
+const centralBankRouter = require('../modules/central-bank-router');
+const tarjetasRouter = require('../modules/tarjetas-router');
+const prestamosRouter = require('../modules/prestamos-router');
+const plazosFijosRouter = require('../modules/plazos-fijos-router');
 
-router.get('/health', (_req, res) => {
-  res.json({
-    ok: true,
-    service: 'banco-backend',
-  });
-});
+
+const router = express.Router();
 
 router.use('/personas', createCrudRouter(entities.personas));
 router.use('/roles', createCrudRouter(entities.roles));
@@ -23,8 +20,13 @@ router.use('/cuentas', createCrudRouter(entities.cuentas));
 router.use('/tipos-transaccion', createCrudRouter(entities.tipos_transaccion));
 router.use('/transacciones', transaccionesRouter);
 router.use('/chatbot', chatbotRouter);
+
+router.use('/central-bank', centralBankRouter);
 router.use('/destinatarios', createCrudRouter(entities.destinatarios));
 router.use('/auditoria', createCrudRouter(entities.auditoria));
+router.use('/tarjetas', tarjetasRouter);
+router.use('/prestamos', prestamosRouter);
+router.use('/plazos-fijos', plazosFijosRouter);
 router.use('/', relationsRouter);
 
 module.exports = router;

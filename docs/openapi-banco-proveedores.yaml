@@ -1,0 +1,300 @@
+# banco-proveedores — mocks de terceros
+#
+# API separada que simula a los proveedores externos con los que el banco opera:
+# operadoras de celular y empresas de servicios. Vive en su propio repo y se
+# despliega aparte; el banco la consume por HTTP como si fuera un tercero real.
+#
+# Cargar en https://editor.swagger.io para leerlo renderizado.
+
+openapi: 3.0.3
+
+info:
+  title: banco-proveedores — Mocks de terceros
+  version: 1.0.0-draft
+  description: |
+    Simula a los proveedores externos con los que opera Banco Orbital. **No es parte
+    del banco**: es una API aparte, con su propio repo y su propio deploy, que el
+    banco consume por HTTP.
+
+    ## Por qué está separada
+
+    En la vida real un banco no tiene adentro el catálogo de facturas de la empresa
+    de luz: se lo pregunta por API. Separarlo tiene tres ventajas concretas:
+
+    - El código del banco queda igual que si el proveedor fuera real: cliente HTTP,
+      timeout, manejo de caída.
+    - Se puede **apagar el proveedor** para probar qué hace el banco cuando el
+      tercero no responde. Eso no se puede ensayar si el mock vive adentro.
+    - Es un pedazo de trabajo que se puede tomar entero sin tocar el backend.
+
+    ## Qué NO va acá
+
+    Préstamos, tarjetas y plazos fijos son **negocio del banco**, no de un tercero:
+    viven en `banco-orbital`. Las tasas y la cotización tampoco, porque salen de
+    APIs públicas reales (ArgentinaDatos y DolarAPI).
+
+    ## Autenticación
+
+    API key fija por header `x-api-key`, guardada en el `.env` del banco. No es un
+    secreto real —es un mock— pero se pide igual para que el código del banco maneje
+    credenciales de proveedor como lo haría en producción.
+
+    ## Convenciones
+
+    Las mismas que el banco: errores `{ "error": "mensaje" }`, importes `number` con
+    2 decimales, nombres en español.
+
+servers:
+  - url: http://localhost:4000
+    description: Desarrollo local
+  - url: https://proveedores.orbital.example/
+    description: Despliegue compartido (a definir)
+
+security:
+  - ApiKeyProveedores: []
+
+tags:
+  - name: Servicios
+    description: Empresas de servicios, sus facturas y sus pagos.
+  - name: Recargas
+    description: Operadoras de celular y recarga de saldo prepago.
+
+components:
+  securitySchemes:
+    ApiKeyProveedores:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Key fija, la misma para todos los consumidores. Vive en el `.env` del banco.
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, example: 'Empresa no encontrada.' }
+
+    Empresa:
+      type: object
+      properties:
+        id: { type: string, example: edenor }
+        nombre: { type: string, example: Edenor }
+        rubro:
+          type: string
+          enum: [luz, gas, agua, internet, telefonia, cable, otros]
+          example: luz
+        formato_numero_cliente:
+          type: string
+          description: Pista para validar en el frontend antes de consultar.
+          example: '9 dígitos'
+
+    Factura:
+      type: object
+      properties:
+        id: { type: string, example: fac_2026_09_001 }
+        empresa_id: { type: string, example: edenor }
+        numero_cliente: { type: string, example: '123456789' }
+        periodo: { type: string, example: '2026-09' }
+        importe: { type: number, format: double, example: 45320.75 }
+        vencimiento: { type: string, format: date, example: '2026-09-20' }
+        estado:
+          type: string
+          enum: [impaga, pagada, vencida]
+          example: impaga
+
+    Operadora:
+      type: object
+      properties:
+        id: { type: string, example: movistar }
+        nombre: { type: string, example: Movistar }
+        montos_disponibles:
+          type: array
+          items: { type: number }
+          description: Montos de recarga que acepta la operadora.
+          example: [500, 1000, 2000, 5000]
+
+paths:
+  /empresas:
+    get:
+      tags: [Servicios]
+      summary: Listar empresas de servicios
+      description: Catálogo completo. Es lo que el banco muestra en el selector de "Pagar servicios".
+      parameters:
+        - name: rubro
+          in: query
+          required: false
+          schema: { type: string, enum: [luz, gas, agua, internet, telefonia, cable, otros] }
+      responses:
+        '200':
+          description: Empresas disponibles.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Empresa' }
+              example:
+                - { id: edenor, nombre: Edenor, rubro: luz, formato_numero_cliente: '9 dígitos' }
+                - { id: metrogas, nombre: Metrogas, rubro: gas, formato_numero_cliente: '11 dígitos' }
+        '401':
+          description: Falta el header `x-api-key` o es inválido.
+
+  /empresas/{empresaId}/deuda:
+    get:
+      tags: [Servicios]
+      summary: Consultar la deuda de un cliente
+      description: |
+        Devuelve las facturas impagas de un número de cliente. Si no debe nada, la
+        lista viene vacía con `200`: **no es un 404**, porque el cliente existe y
+        simplemente está al día.
+      parameters:
+        - name: empresaId
+          in: path
+          required: true
+          schema: { type: string }
+          example: edenor
+        - name: numero_cliente
+          in: query
+          required: true
+          schema: { type: string }
+          example: '123456789'
+      responses:
+        '200':
+          description: Facturas del cliente. Vacío si está al día.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  numero_cliente: { type: string }
+                  total_adeudado: { type: number, format: double, example: 45320.75 }
+                  facturas:
+                    type: array
+                    items: { $ref: '#/components/schemas/Factura' }
+        '400':
+          description: Falta `numero_cliente` o tiene un formato que la empresa no acepta.
+        '401':
+          description: Falta el header `x-api-key` o es inválido.
+        '404':
+          description: La empresa no existe.
+
+  /empresas/{empresaId}/pagos:
+    post:
+      tags: [Servicios]
+      summary: Registrar el pago de una factura
+      description: |
+        Marca la factura como pagada. **El proveedor no mueve plata**: el débito de la
+        cuenta lo hace el banco por su cuenta, y usa este endpoint para avisarle al
+        proveedor que ya cobró.
+
+        Acepta `Idempotency-Key`, igual que el banco: reintentar con la misma clave
+        devuelve el mismo resultado en vez de marcar dos veces.
+      parameters:
+        - name: empresaId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [factura_id, importe]
+              properties:
+                factura_id: { type: string, example: fac_2026_09_001 }
+                importe: { type: number, format: double, example: 45320.75 }
+      responses:
+        '201':
+          description: Pago registrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  factura: { $ref: '#/components/schemas/Factura' }
+                  fecha_pago: { type: string, format: date-time }
+                  comprobante: { type: string, example: PAG-2026-000123 }
+        '400':
+          description: El importe no coincide con el de la factura.
+        '401':
+          description: Falta el header `x-api-key` o es inválido.
+        '404':
+          description: La empresa o la factura no existen.
+        '409':
+          description: La factura ya estaba pagada.
+
+  /operadoras:
+    get:
+      tags: [Recargas]
+      summary: Listar operadoras de celular
+      responses:
+        '200':
+          description: Operadoras disponibles con sus montos de recarga.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Operadora' }
+        '401':
+          description: Falta el header `x-api-key` o es inválido.
+
+  /operadoras/{operadoraId}/recargas:
+    post:
+      tags: [Recargas]
+      summary: Recargar saldo prepago
+      description: |
+        Acredita saldo en una línea prepaga. Como en el pago de servicios, el débito
+        de la cuenta lo hace el banco; acá sólo se confirma la recarga.
+
+        **Para probar el manejo de errores**, la operadora rechaza los números que
+        terminan en `0000`. Es a propósito: sirve para que el banco tenga un caso de
+        rechazo reproducible.
+      parameters:
+        - name: operadoraId
+          in: path
+          required: true
+          schema: { type: string }
+          example: movistar
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [numero, monto]
+              properties:
+                numero: { type: string, example: '3514123456' }
+                monto: { type: number, format: double, example: 2000 }
+      responses:
+        '201':
+          description: Recarga acreditada.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, example: rec_000456 }
+                  numero: { type: string }
+                  monto: { type: number, format: double }
+                  estado: { type: string, enum: [acreditada], example: acreditada }
+                  fecha: { type: string, format: date-time }
+        '400':
+          description: El monto no está entre los que acepta la operadora.
+        '401':
+          description: Falta el header `x-api-key` o es inválido.
+        '404':
+          description: La operadora no existe.
+        '422':
+          description: La operadora rechazó la recarga. Reproducible con números terminados en `0000`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 'La operadora rechazó la recarga para ese número.' }

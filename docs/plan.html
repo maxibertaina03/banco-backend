@@ -1,0 +1,648 @@
+<!-- Fuente de la versión visual del plan, publicada como artifact.
+     El texto canónico y grepeable es PLAN.md; este archivo es la página para compartir. -->
+<title>Hoja de Ruta Orbital</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    --ground:      #F6F7F8;
+    --surface:     #FFFFFF;
+    --surface-2:   #EDF0F2;
+    --ink:         #131A21;
+    --ink-muted:   #5C6874;
+    --rule:        #D6DCE1;
+    --rule-strong: #B4BEC7;
+    --accent:      #1B5E4A;
+    --accent-soft: #E2EFE9;
+    --warn:        #8F5512;
+    --warn-soft:   #F7EEE0;
+    --crit:        #9E2F2A;
+    --crit-soft:   #F8E6E4;
+
+    --f-display: "Archivo", ui-sans-serif, system-ui, sans-serif;
+    --f-prose:   "Source Serif 4", Georgia, "Times New Roman", serif;
+    --f-mono:    "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0F1418;
+      --surface:     #161D23;
+      --surface-2:   #1D262D;
+      --ink:         #E4EAEF;
+      --ink-muted:   #97A4B0;
+      --rule:        #2A343C;
+      --rule-strong: #3C4954;
+      --accent:      #5CB496;
+      --accent-soft: #14302A;
+      --warn:        #D9A05B;
+      --warn-soft:   #302512;
+      --crit:        #E28078;
+      --crit-soft:   #371E1C;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #0F1418;
+    --surface:     #161D23;
+    --surface-2:   #1D262D;
+    --ink:         #E4EAEF;
+    --ink-muted:   #97A4B0;
+    --rule:        #2A343C;
+    --rule-strong: #3C4954;
+    --accent:      #5CB496;
+    --accent-soft: #14302A;
+    --warn:        #D9A05B;
+    --warn-soft:   #302512;
+    --crit:        #E28078;
+    --crit-soft:   #371E1C;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-prose);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 3.5rem 1.5rem 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3.5rem;
+  }
+
+  .col      { max-width: 40rem; }
+  .col p    { margin: 0 0 1rem; }
+  .col p:last-child { margin-bottom: 0; }
+
+  .head { display: flex; flex-direction: column; gap: 1.25rem; }
+  .eyebrow {
+    font-family: var(--f-display);
+    font-size: .74rem;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    font-family: var(--f-display);
+    font-size: clamp(2.1rem, 5vw, 3.1rem);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 1.15rem;
+    color: var(--ink-muted);
+    max-width: 42rem;
+    margin: 0;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1.75rem;
+    font-family: var(--f-display);
+    font-size: .82rem;
+    color: var(--ink-muted);
+    border-top: 1px solid var(--rule);
+    padding-top: 1rem;
+  }
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  section { display: flex; flex-direction: column; gap: 1.5rem; }
+  h2 {
+    font-family: var(--f-display);
+    font-size: 1.55rem;
+    font-weight: 700;
+    letter-spacing: -.01em;
+    margin: 0;
+    padding-bottom: .6rem;
+    border-bottom: 2px solid var(--ink);
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--f-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0 0 .5rem;
+  }
+
+  .verdict {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .vcell { background: var(--surface); padding: 1.15rem 1.25rem; }
+  .vcell .k {
+    font-family: var(--f-display);
+    font-size: .7rem;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    display: block;
+    margin-bottom: .35rem;
+  }
+  .vcell .v {
+    font-family: var(--f-display);
+    font-size: 1.5rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+  .vcell .n { font-size: .84rem; color: var(--ink-muted); font-family: var(--f-display); }
+  .ok   { color: var(--accent); }
+  .bad  { color: var(--crit); }
+
+  .findings { display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; }
+  .finding {
+    background: var(--surface);
+    display: grid;
+    grid-template-columns: 7.5rem 1fr;
+    gap: 1.25rem;
+    padding: 1.1rem 1.25rem;
+    align-items: start;
+  }
+  .chip {
+    font-family: var(--f-display);
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: .3rem .5rem;
+    border-radius: 2px;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .chip.c { background: var(--crit-soft);   color: var(--crit);   border-left: 3px solid var(--crit); }
+  .chip.a { background: var(--warn-soft);   color: var(--warn);   border-left: 3px solid var(--warn); }
+  .chip.m { background: var(--surface-2);   color: var(--ink-muted); border-left: 3px solid var(--rule-strong); }
+  .chip.o { background: var(--accent-soft); color: var(--accent); border-left: 3px solid var(--accent); }
+  .finding .body { font-size: .95rem; }
+  .finding .body strong { font-family: var(--f-display); font-weight: 600; }
+
+  .scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-family: var(--f-display); font-size: .89rem; }
+  th, td { text-align: left; padding: .7rem .95rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-size: .7rem;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  td code, th code { white-space: nowrap; }
+
+  .phases { display: flex; flex-direction: column; gap: 1.25rem; }
+  .phase {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 1.4rem 1.5rem;
+    display: grid;
+    grid-template-columns: 3.25rem 1fr;
+    gap: 1.4rem;
+  }
+  .phase .idx {
+    font-family: var(--f-display);
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    border-right: 1px solid var(--rule);
+    padding-right: 1rem;
+  }
+  .phase .idx small { display: block; font-size: .6rem; letter-spacing: .1em; color: var(--ink-muted); font-weight: 600; margin-top: .3rem; }
+  .phase .who {
+    font-family: var(--f-display);
+    font-size: .7rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin-bottom: .5rem;
+  }
+  .phase h3 { margin-bottom: .35rem; }
+  .phase ul { margin: .7rem 0 0; padding-left: 1.1rem; font-size: .95rem; display: flex; flex-direction: column; gap: .35rem; }
+  .phase p { margin: 0; font-size: .95rem; color: var(--ink-muted); }
+  .gate {
+    margin-top: .9rem;
+    padding-top: .75rem;
+    border-top: 1px dashed var(--rule-strong);
+    font-family: var(--f-display);
+    font-size: .82rem;
+  }
+  .gate b { color: var(--accent); font-weight: 700; }
+
+  code {
+    font-family: var(--f-mono);
+    font-size: .86em;
+    background: var(--surface-2);
+    padding: .12em .38em;
+    border-radius: 2px;
+    color: var(--ink);
+  }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ul { margin: 0; padding-left: 1.15rem; }
+  li { margin-bottom: .3rem; }
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    padding: .9rem 1.1rem;
+    border-radius: 0 3px 3px 0;
+    font-size: .95rem;
+  }
+  .note p { margin: 0; }
+  .note p + p { margin-top: .6rem; }
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 1.25rem;
+    font-family: var(--f-display);
+    font-size: .82rem;
+    color: var(--ink-muted);
+  }
+</style>
+
+<div class="page">
+
+  <header class="head">
+    <span class="eyebrow">Banco Orbital · Maxi + Gonza</span>
+    <h1>Hoja de Ruta Orbital</h1>
+    <p class="standfirst">Cómo llevamos el banco desde donde está hoy hasta la especificación acordada con los otros nueve bancos. Las once decisiones de arranque ya están cerradas y los endpoints del Banco Central, probados contra el ambiente real.</p>
+    <div class="meta">
+      <span><b>Fase 0</b> cerrada · <b>Fase 1</b> en curso</span>
+      <span><b>Decisiones</b> 10 cerradas, 1 abierta</span>
+      <span><b>Banco Central</b> probado en <code>test</code>, somos bankCode 6</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>1. Dónde estamos</h2>
+    <div class="col">
+      <p>Los dos repos quedaron limpios y con <code>main</code> al día. Todo lo que sigue se construye sobre esta base.</p>
+    </div>
+
+    <div class="verdict">
+      <div class="vcell">
+        <span class="k">Tests backend</span>
+        <span class="v ok">139</span>
+        <span class="n">11 archivos, todos verdes</span>
+      </div>
+      <div class="vcell">
+        <span class="k">Build frontend</span>
+        <span class="v ok">OK</span>
+        <span class="n">Vite, 2,9 s</span>
+      </div>
+      <div class="vcell">
+        <span class="k">Sin commitear</span>
+        <span class="v ok">0</span>
+        <span class="n">en los dos repos</span>
+      </div>
+      <div class="vcell">
+        <span class="k">Endpoints del Central</span>
+        <span class="v ok">6 / 6</span>
+        <span class="n">probados de punta a punta</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Las decisiones que tomamos</h2>
+    <div class="col">
+      <p>Cerradas entre los dos. Si alguna cambia, se actualiza acá primero y después el código.</p>
+    </div>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Decisión</th><th>Qué implica</th></tr></thead>
+        <tbody>
+          <tr><td><strong>v1 = cuentas, tarjetas, préstamos y plazos fijos</strong></td><td>Seguros, CEDEARs y reservas van a v2. El OpenAPI de la fase 1 sólo cubre la v1</td></tr>
+          <tr><td><strong>Clerk sigue siendo la autenticación</strong></td><td><code>http bearer</code> con el JWT de Clerk. Sin cambios en el backend</td></tr>
+          <tr><td><strong>Errores igual que el Central: <code>{ error }</code></strong></td><td><strong>No requiere trabajo.</strong> El Central usa <code>error</code> en errores y <code>message</code> sólo en confirmaciones, igual que nuestro <code>error-handler</code>. Se descarta el campo <code>codigo</code> que se había propuesto</td></tr>
+          <tr><td><strong>Idempotencia en todo lo que mueve plata</strong></td><td>El middleware ya existe. Se suma <code>Idempotency-Key</code> a pagos de cuota, cambio de divisa, autorizaciones de tarjeta, depósitos y extracciones</td></tr>
+          <tr><td><strong>Paginación <code>page</code>/<code>limit</code></strong></td><td>Se mantiene lo que ya hay. Sin cursores</td></tr>
+          <tr><td><strong><code>banco-proveedores</code> con API key fija</strong></td><td>Key en <code>.env</code>, consumible en cualquier momento. No simula caídas por ahora</td></tr>
+          <tr><td><strong>Situación 3 o peor bloquea todo</strong></td><td>Alta de cuenta y otorgamiento de préstamos. Una sola función de chequeo usada en los dos lugares</td></tr>
+          <tr><td><strong>Cotización: DolarAPI, casa <code>oficial</code></strong></td><td>Es una constante del adapter. Pasar a <code>blue</code> o <code>mayorista</code> es una línea</td></tr>
+          <tr><td><strong>Gemini con la cuenta gratuita del equipo</strong></td><td>El plan gratuito tiene tope de pedidos: el rate limit de 30 cada 15 minutos que ya trae el chatbot ayuda a no agotarlo</td></tr>
+          <tr><td><strong>El asistente es de SOLO LECTURA</strong></td><td>Responde sobre saldo, movimientos y elegibilidad crediticia. <strong>No ejecuta ninguna acción</strong>, ni siquiera bloquear una tarjeta</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <p><strong>El asistente de solo lectura es la decisión que más simplifica el proyecto.</strong> Saca de la mesa el riesgo más grande de un asistente con IA, que es que ejecute una operación que el cliente no pidió, y acorta bastante la fase 7. A cambio aparece una regla nueva que hay que testear explícitamente: que no pueda contestar sobre <em>otro</em> cliente aunque se lo pidan de mil formas.</p>
+    </div>
+
+    <h3>Lo único que queda abierto</h3>
+    <div class="col">
+      <p><strong>Cada cuánto se actualiza la situación de un deudor.</strong> Informar al otorgar el préstamo está claro; falta qué dispara la actualización cuando el cliente entra en mora. Sin algo periódico, la mora nunca llega al Central. Tres opciones, para decidir antes de la fase 5:</p>
+    </div>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Opción</th><th>A favor</th><th>En contra</th></tr></thead>
+        <tbody>
+          <tr><td>Recalcular al registrar cada pago de cuota</td><td>Simple, sin infraestructura nueva</td><td><strong>No detecta al que deja de pagar</strong>, que es justo el caso que importa</td></tr>
+          <tr><td>Endpoint interno que recorra los vencidos, disparado a mano o por cron externo</td><td>Es el patrón que ya usan para limpiar <code>idempotency_keys</code></td><td>Alguien se tiene que acordar de dispararlo</td></tr>
+          <tr><td>Job con <code>setInterval</code> al arrancar el server</td><td>El más fácil de escribir</td><td>El más frágil: se duplica si hay más de una instancia</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. El Banco Central, probado contra el ambiente real</h2>
+    <div class="col">
+      <p>Los seis endpoints nuevos se probaron de punta a punta en <code>x-environment: test</code>. Se creó una persona de prueba con caja en pesos y en dólares, se le puso alias, y se informó y actualizó una deuda. Somos <strong>bankCode 6</strong>.</p>
+    </div>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Llamada</th><th>Resultado</th></tr></thead>
+        <tbody>
+          <tr><td><code>POST /persons</code></td><td><code>201</code> → CBU pesos <code>…001608</code></td></tr>
+          <tr><td><code>POST /accounts</code> USD</td><td><code>201</code> → CBU <code>…001707</code></td></tr>
+          <tr><td><code>POST /accounts</code> USD repetido</td><td><code>200</code> idempotente, como documenta</td></tr>
+          <tr><td><code>POST /accounts</code> ARS</td><td><code>200</code> "la cuenta en ARS ya existe"</td></tr>
+          <tr><td><code>GET /accounts/{cbu}</code> <strong>ARS</strong></td><td><strong><code>200</code></strong> — la documentación decía que no encontraba ARS</td></tr>
+          <tr><td><code>GET /accounts/{cbu}</code> USD</td><td><code>200</code> con <code>moneda</code> y <code>saldo</code></td></tr>
+          <tr><td><code>PUT /accounts/{cbu}/alias</code></td><td><code>200</code></td></tr>
+          <tr><td><code>POST /central-deudores</code></td><td><code>201</code> la primera vez, <code>200</code> "Deuda actualizada" al repetir</td></tr>
+          <tr><td><code>GET /central-deudores/{dni}</code> sin deudas</td><td><strong><code>200</code> con <code>deudas: []</code></strong>, no el <code>404</code> que documenta</td></tr>
+          <tr><td><code>GET /central-deudores/123</code></td><td><code>400</code> "Se esperan 7 u 8 dígitos"</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="findings">
+      <div class="finding">
+        <span class="chip o">Simplifica</span>
+        <div class="body"><strong>No hay asimetría ARS/USD.</strong> <code>GET /accounts/{cbu}</code> resuelve las dos monedas y siempre trae <code>moneda</code>, al revés de lo que dice su propia documentación. Es el único endpoint que hace falta para resolver un CBU: <strong>se cae el helper con fallback</strong> que estaba planeado para la fase 2.</div>
+      </div>
+      <div class="finding">
+        <span class="chip m">Ajuste</span>
+        <div class="body"><strong><code>/central-deudores/{dni}</code> nunca devuelve 404.</strong> Para un DNI sin deudas contesta <code>200</code> con <code>situacion: 1</code> y <code>deudas: []</code>. No se puede distinguir "no existe" de "sin deudas", pero da igual: la decisión se toma sobre <code>situacion</code>.</div>
+      </div>
+      <div class="finding">
+        <span class="chip m">Dato</span>
+        <div class="body"><strong>El CBU embebe el DNI.</strong> <code>006</code> (nuestro bankCode) + <code>0019</code> + los 8 dígitos del DNI + un sufijo por cuenta. Sirve para depurar, pero <strong>no confiar en ese formato</strong> para CBUs de otros bancos.</div>
+      </div>
+      <div class="finding">
+        <span class="chip c">Riesgo</span>
+        <div class="body"><strong><code>POST /transactions</code> sigue sin campo <code>moneda</code>.</strong> El Central acepta una transferencia de un CBU en pesos hacia uno en dólares y mueve el <code>importe</code> tal cual. Si otro banco nos manda 50.000 desde una caja en pesos a nuestro CBU en dólares, acreditaríamos 50.000 dólares. <strong>Hay que llevarlo al grupo de bancos.</strong></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>4. El plan</h2>
+    <div class="col">
+      <p>Las fases están numeradas porque son una secuencia real: cada una desbloquea la siguiente. Las fases 0 a 2 son de a uno; de la 3 en adelante se trabaja en paralelo.</p>
+    </div>
+
+    <div class="phases">
+
+      <article class="phase">
+        <div class="idx">0<small>HECHA</small></div>
+        <div>
+          <div class="who">Maxi</div>
+          <h3>Higiene</h3>
+          <ul>
+            <li>✅ <code>Dinero</code> y el renombre a español, commiteados. El commit de <code>Dinero</code> se verificó aislado: queda verde por sí solo.</li>
+            <li>✅ <code>main</code> sincronizada por fast-forward puro en los dos repos.</li>
+            <li>✅ <code>docs/</code> con el glosario y el plan. El README del frontend apunta ahí.</li>
+            <li>✅ Branches <code>backup/*</code> borradas y worktree fantasma podado.</li>
+            <li>⏸ Falta integrar la rama <code>gonza</code>. <strong>No se borra:</strong> tiene el chatbot.</li>
+          </ul>
+          <div class="gate"><b>Verificado:</b> 139 tests, build de Vite, y <code>require('./src/app')</code> carga.</div>
+        </div>
+      </article>
+
+      <article class="phase">
+        <div class="idx">1</div>
+        <div>
+          <div class="who">Maxi + Gonza · juntos</div>
+          <h3>El contrato primero</h3>
+          <p>Escribir el OpenAPI antes de implementar. Es lo único que permite que los dos avancen en paralelo: con el contrato escrito, Gonza mockea las respuestas y construye la UI sin esperar backend.</p>
+          <ul>
+            <li><code>openapi-banco-orbital.yaml</code> con la <strong>v1</strong>, y <code>openapi-banco-proveedores.yaml</code> aparte.</li>
+            <li>Auth con Clerk, errores <code>{ error }</code>, paginación <code>page</code>/<code>limit</code>, <code>Idempotency-Key</code> en todo lo que mueve plata.</li>
+            <li>✅ Las cuatro APIs externas, probadas.</li>
+            <li>✅ Los seis endpoints del Central, probados.</li>
+            <li>Llevar al grupo el tema de las monedas en <code>POST /transactions</code>.</li>
+          </ul>
+          <div class="gate"><b>Listo cuando:</b> los dos YAML cargan sin errores en Swagger Editor y los dos los aprobaron.</div>
+        </div>
+      </article>
+
+      <article class="phase">
+        <div class="idx">2</div>
+        <div>
+          <div class="who">Maxi · backend</div>
+          <h3>Cimientos</h3>
+          <p>Bloquea todo lo demás, así que va solo y va primero.</p>
+          <ul>
+            <li><strong>Cuentas multi-moneda.</strong> N cuentas por persona, cada una con CBU, moneda y alias. <strong>Guardar siempre el CBU en USD localmente</strong>, porque el Central no lo puede listar.</li>
+            <li>Extender <code>central-bank-client.js</code> con las seis rutas nuevas.</li>
+            <li>Resolver la moneda de un CBU con <code>GET /accounts/{cbu}</code>, que sirve para las dos (verificado). Sin fallback.</li>
+            <li><strong>Adapter de mercado</strong> en <code>src/modules/mercado/</code> con caché TTL y timeout. <strong>Acá se normaliza la TNA</strong> de fracción a porcentaje.</li>
+            <li>Chequeo crediticio contra <code>GET /central-deudores/{dni}</code>, usado en el alta <strong>y</strong> al otorgar préstamos.</li>
+          </ul>
+          <div class="gate"><b>Listo cuando:</b> se abre una caja en USD, se recupera su CBU repitiendo <code>POST /accounts</code>, y un DNI en situación 4 rebota las dos operaciones.</div>
+        </div>
+      </article>
+
+      <article class="phase">
+        <div class="idx">3</div>
+        <div>
+          <div class="who">Maxi backend · Gonza frontend</div>
+          <h3>Cuentas y cambio de divisa</h3>
+          <p>El primer slice vertical, y el que fija el patrón para los que siguen.</p>
+          <ul>
+            <li>Depósitos, extracciones y movimientos con categoría.</li>
+            <li>Compra y venta de dólares a la cotización <code>oficial</code> de DolarAPI.</li>
+            <li><strong>Validación de moneda en toda transferencia</strong>, de salida y de entrada.</li>
+            <li>Todo con <code>Idempotency-Key</code>.</li>
+          </ul>
+          <div class="gate"><b>Listo cuando:</b> un cliente compra dólares en la UI y los ve acreditados, y una transferencia entre monedas distintas se rechaza con motivo.</div>
+        </div>
+      </article>
+
+      <article class="phase">
+        <div class="idx">4</div>
+        <div>
+          <div class="who">Maxi backend · Gonza frontend</div>
+          <h3>Tarjetas</h3>
+          <ul>
+            <li>Emisión de débito (ligada a un CBU) y de crédito (con límite propio).</li>
+            <li>Autorización de consumos: valida saldo o límite y aprueba o rechaza.</li>
+            <li>Bloqueo y desbloqueo, desde la UI.</li>
+            <li>Resumen mensual de crédito con total, pago mínimo, vencimiento y CFT.</li>
+          </ul>
+          <div class="gate"><b>Listo cuando:</b> una compra que excede el límite se rechaza con motivo, y queda registrada.</div>
+        </div>
+      </article>
+
+      <article class="phase">
+        <div class="idx">5</div>
+        <div>
+          <div class="who">Maxi backend · Gonza frontend</div>
+          <h3>Préstamos e inversiones</h3>
+          <p>El bloque con más matemática. Acá es donde <code>Dinero</code> paga lo que costó.</p>
+          <ul>
+            <li>Simulación por sistema francés, con tabla que cierra en cero exacto.</li>
+            <li>Solicitud, pago de cuotas y precancelación. TNA de ArgentinaDatos, normalizada.</li>
+            <li><strong>Informar la deuda al Central</strong> al otorgar, y actualizarla según lo que se decida en el punto abierto.</li>
+            <li>Plazos fijos con interés simple base 365.</li>
+          </ul>
+          <div class="gate"><b>Listo cuando:</b> la cuota coincide al centavo con la de los otros bancos, y un préstamo otorgado acá aparece en la consulta de deudores de otro banco.</div>
+        </div>
+      </article>
+
+      <article class="phase">
+        <div class="idx">6</div>
+        <div>
+          <div class="who">Gonza, punta a punta</div>
+          <h3>Proveedores</h3>
+          <p>Repo <code>banco-proveedores</code> con los mocks de terceros, más el cliente que los consume desde el banco. No dependen del Central ni de la fase 2, así que sirven para paralelizar.</p>
+          <ul>
+            <li>Catálogo de empresas de servicios, deuda y pagos.</li>
+            <li>Operadoras de recarga.</li>
+            <li>API key fija en <code>.env</code>, consumible en cualquier momento.</li>
+            <li>En el banco: el cliente HTTP con timeout y manejo de caída.</li>
+          </ul>
+          <div class="gate"><b>Listo cuando:</b> se paga una factura desde el portal y el proveedor la marca como saldada.</div>
+        </div>
+      </article>
+
+      <article class="phase">
+        <div class="idx">7</div>
+        <div>
+          <div class="who">Gonza ya lo empezó</div>
+          <h3>Asistente de consulta y reportes</h3>
+          <p><strong>El asistente ya existe.</strong> Gonza lo pusheó el 31 de agosto en la rama <code>gonza</code>, con Gemini. Trae guardarrailes contra prompt injection, rate limit de 30 pedidos cada 15 minutos y filtrado de patrones sensibles en el pedido y en la respuesta.</p>
+          <ul>
+            <li><strong>Portarlo, no construirlo.</strong> Su rama sale de un backend de abril: se copian los 3 archivos sobre una rama nueva desde <code>main</code> y se re-cablean.</li>
+            <li>Cuidado con un detalle que rompe al arrancar: <code>chatbot-router.js</code> importa <code>clerk-auth</code> como default, pero en <code>main</code> ese módulo exporta un objeto.</li>
+            <li><strong>Solo lectura:</strong> saldo, movimientos, elegibilidad para un préstamo, datos propios. Ninguna acción.</li>
+            <li><strong>La regla a testear explícitamente:</strong> que no pueda contestar sobre otro cliente aunque se lo pidan de mil formas distintas.</li>
+            <li>Reportes: resumen de gastos por categoría y exportación de movimientos.</li>
+          </ul>
+          <div class="gate"><b>Listo cuando:</b> corre sobre la <code>main</code> nueva con sus tests en verde, contesta el saldo del cliente autenticado, y se niega a hablar de cualquier otro.</div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <section>
+    <h2>5. Lo que dieron las APIs externas</h2>
+    <div class="col">
+      <p>Probadas con <code>curl</code> antes de escribir una línea que dependa de ellas. Tres de los hallazgos cambian el trabajo.</p>
+    </div>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>API</th><th>Estado</th><th>Qué devolvió</th></tr></thead>
+        <tbody>
+          <tr><td>DolarAPI <code>/v1/dolares</code></td><td>200 · 0,47 s</td><td>7 cotizaciones. Usamos <code>oficial</code></td></tr>
+          <tr><td>ArgentinaDatos · plazo fijo</td><td>200</td><td>32 bancos, con <code>tasas[]</code> por plazo</td></tr>
+          <tr><td>ArgentinaDatos · préstamos</td><td>200</td><td>25 entidades, con <code>tna</code>, <code>tea</code>, <code>cftTea</code></td></tr>
+          <tr><td>ArgentinaDatos · UVA</td><td>200</td><td>3.794 valores, último 2082,26</td></tr>
+          <tr><td>data912 · CEDEARs</td><td>200</td><td>952 items. Queda para la v2</td></tr>
+          <tr><td>BCRA · Transparencia</td><td><strong>404</strong></td><td>Descartada</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="findings">
+      <div class="finding">
+        <span class="chip c">Trampa</span>
+        <div class="body"><strong>La TNA viene como fracción decimal, no como porcentaje.</strong> ArgentinaDatos devuelve <code>tna: 0.19</code> para una tasa del 19 %. Nuestro <code>Dinero</code> y la fórmula acordada trabajan en porcentaje. Si no se normaliza en el adapter, las cuotas salen cien veces más chicas y el error no lo cazan los tests.</div>
+      </div>
+      <div class="finding">
+        <span class="chip a">Descartada</span>
+        <div class="body"><strong>BCRA no sirve.</strong> El path del documento devuelve 404 y los endpoints de estadísticas dan <code>410 Gone</code>. No hace falta: ArgentinaDatos ya cubre plazo fijo y préstamos personales.</div>
+      </div>
+      <div class="finding">
+        <span class="chip o">Se cierra</span>
+        <div class="body"><strong>La UVA entra en 2 decimales</strong> (2082,26), así que la escala de <code>Dinero</code> alcanza. El ratio de CEDEARs quedó para la v2.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>6. Reparto</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Área</th><th>Dueño</th></tr></thead>
+        <tbody>
+          <tr><td>Contrato OpenAPI</td><td>Los dos, juntos</td></tr>
+          <tr><td>Cimientos, Central, APIs externas</td><td>Maxi</td></tr>
+          <tr><td>Cálculo financiero y central de deudores</td><td>Maxi</td></tr>
+          <tr><td>Portal, secciones, formularios</td><td>Gonza</td></tr>
+          <tr><td><code>banco-proveedores</code>, punta a punta</td><td>Gonza</td></tr>
+          <tr><td>Asistente con IA</td><td>Gonza, ya empezado</td></tr>
+          <tr><td>Revisión cruzada de PRs</td><td>Los dos</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>7. Riesgos</h2>
+
+    <div class="findings">
+      <div class="finding">
+        <span class="chip c">Contrato</span>
+        <div class="body"><strong>Las transferencias no distinguen moneda.</strong> El riesgo más serio, y no lo arreglamos solos: aunque nosotros validemos, cualquier otro banco puede mandarnos pesos a un CBU en dólares. Llevarlo al grupo.</div>
+      </div>
+      <div class="finding">
+        <span class="chip a">Abierto</span>
+        <div class="body"><strong>Falta definir cómo se actualiza la mora en el Central.</strong> Sin eso, la central de deudores queda desactualizada y el sistema no cumple su función. Decidir antes de la fase 5.</div>
+      </div>
+      <div class="finding">
+        <span class="chip a">Alcance</span>
+        <div class="body"><strong>Sigue siendo mucho para dos personas</strong>, aun con el recorte a v1. El orden de las fases está pensado para que, si hay que cortar, se corte por el final.</div>
+      </div>
+      <div class="finding">
+        <span class="chip m">Cuota</span>
+        <div class="body"><strong>El plan gratuito de Gemini tiene tope de pedidos.</strong> El rate limit de 30 cada 15 minutos que ya trae el chatbot ayuda, pero si la demo es con varios usuarios a la vez conviene medirlo antes.</div>
+      </div>
+      <div class="finding">
+        <span class="chip m">Técnico</span>
+        <div class="body"><strong>El proyecto corre en Node 18</strong>, lo que ya limita las versiones de vitest. Chequear cada dependencia nueva contra esa restricción antes de instalarla.</div>
+      </div>
+    </div>
+
+    <div class="note">
+      <p>La lección del renombre: los tests y el build no detectaron un import roto, y sólo apareció al arrancar la aplicación. El CI del backend ya corre <code>require('./src/app')</code> — falta el equivalente en el frontend.</p>
+      <p>La lección de la spec: lo publicado por el Central difería del acuerdo, y al probarlo difería también de su propia documentación. <strong>Probar antes de escribir</strong>, y releer <code>openapi.json</code> antes de cada fase que lo toque.</p>
+    </div>
+  </section>
+
+  <footer>
+    Banco Orbital · Plan de trabajo para la especificación Home Banking · Fase 0 cerrada, fase 1 en curso, decisiones acordadas
+  </footer>
+
+</div>

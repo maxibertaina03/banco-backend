@@ -98,28 +98,12 @@ CLERK_SECRET_KEY=sk_test_...
 ```env
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
 CLERK_SECRET_KEY=sk_test_...
-GEMINI_API_KEY=tu_api_key_de_gemini
-GEMINI_MODEL=gemini-3.6-flash
 NEXT_PUBLIC_API_URL=http://localhost:3000
 NEXT_PUBLIC_CLERK_SIGN_IN_URL=/auth/sign-in
 NEXT_PUBLIC_CLERK_SIGN_UP_URL=/auth/sign-up
 NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
 NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/dashboard
 ```
-
-### Chatbot seguro
-
-El portal incluye un asistente flotante que usa `POST /api/chatbot/message`.
-La ruta requiere autenticación de Clerk y limita cada usuario a 30 solicitudes
-por 15 minutos. El historial no se almacena en la base de datos ni en el
-navegador. El backend envía a Gemini únicamente los identificadores públicos
-de las cuentas activas del usuario autenticado (CBU, alias, número de cuenta y
-saldo); no envía JWT, claves, DNI, movimientos, datos de contacto ni
-información de terceros.
-
-`GEMINI_API_KEY` debe existir únicamente en el entorno del backend. Nunca la
-definas como una variable `VITE_*`, porque esas variables quedan disponibles
-en el navegador.
 
 ---
 

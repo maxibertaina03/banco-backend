@@ -1,15 +1,35 @@
 const { z } = require('zod');
 const { uuidLike } = require('../utils/schemas');
-const { normalizarMonedaDeCuenta } = require('../utils/cuentas');
+const requerirRoles = require('../middlewares/require-roles');
+const {
+  injectCurrentPersona,
+  requireOwnershipByEntity,
+  restrictQueryToCurrentPersona,
+} = require('../middlewares/ownership');
+const {
+  aPersonaPublica,
+  aUsuarioPublico,
+  aCuentaPublica,
+  aTransaccionPublica,
+  aDestinatarioPublico,
+  aRolPublico,
+  aTipoDeCuentaPublico,
+  aTipoDeTransaccionPublico,
+  aPersonaRolPublico,
+  normalizePersonaInput,
+  normalizeCuentaInput,
+  normalizeDestinatarioInput,
+  normalizeUsuarioInput,
+  normalizeRolInput,
+  normalizeTipoCuentaInput,
+  normalizeTipoTransaccionInput,
+  normalizePersonaRolInput,
+} = require('../dtos');
 
 const uuid = uuidLike;
 const numericString = z.union([z.string(), z.number()]).transform((value) => String(value));
 const optionalNullableString = z.string().trim().min(1).nullable().optional();
-const esquemaDeMonedaDeCuenta = z
-  .string()
-  .trim()
-  .transform((value) => normalizarMonedaDeCuenta(value))
-  .pipe(z.enum(['ARS', 'USD']));
+const internalOnly = [requerirRoles(['admin', 'operador', 'auditor', 'tesoreria'])];
 
 const entities = {
   personas: {
@@ -17,93 +37,167 @@ const entities = {
     orderBy: 'created_at DESC',
     select: '*',
     allowedFilters: ['dni', 'email'],
+    dto: aPersonaPublica,
+    inputDto: normalizePersonaInput,
     createSchema: z.object({
       nombre: z.string().trim().min(1),
       apellido: z.string().trim().min(1),
-      dni: z.string().trim().min(1),
+      dni: z.string().trim().min(1).nullable().optional(),
       email: z.email(),
       telefono: optionalNullableString,
       fecha_nacimiento: z.iso.date().nullable().optional(),
+      perfil_completo: z.boolean().optional(),
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   roles: {
     table: 'roles',
     orderBy: 'nombre ASC',
     select: '*',
     allowedFilters: ['nombre'],
+    dto: aRolPublico,
+    inputDto: normalizeRolInput,
     createSchema: z.object({
       nombre: z.string().trim().min(1),
       descripcion: optionalNullableString,
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   personas_roles: {
     table: 'personas_roles',
     orderBy: 'asignado_at DESC',
     select: '*',
     allowedFilters: ['persona_id', 'rol_id'],
+    dto: aPersonaRolPublico,
+    inputDto: normalizePersonaRolInput,
     createSchema: z.object({
       persona_id: uuid,
       rol_id: uuid,
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   usuarios: {
     table: 'usuarios',
     orderBy: 'created_at DESC',
     select: '*',
     allowedFilters: ['persona_id', 'clerk_id', 'activo'],
+    dto: aUsuarioPublico,
+    inputDto: normalizeUsuarioInput,
     createSchema: z.object({
       persona_id: uuid,
       clerk_id: z.string().trim().min(1),
       activo: z.boolean().optional(),
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   tipos_cuenta: {
     table: 'tipos_cuenta',
     orderBy: 'nombre ASC',
     select: '*',
     allowedFilters: ['nombre'],
+    dto: aTipoDeCuentaPublico,
+    inputDto: normalizeTipoCuentaInput,
     createSchema: z.object({
       nombre: z.string().trim().min(1),
       descripcion: optionalNullableString,
       limite_transferencia: numericString.nullable().optional(),
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   cuentas: {
     table: 'cuentas',
     orderBy: 'created_at DESC',
     select: '*',
-    allowedFilters: ['persona_id', 'tipo_cuenta_id', 'activa', 'numero_cuenta', 'cbu', 'moneda'],
+    allowedFilters: ['persona_id', 'tipo_cuenta_id', 'activa', 'numero_cuenta', 'cbu', 'alias'],
+    dto: aCuentaPublica,
+    inputDto: normalizeCuentaInput,
     createSchema: z.object({
       persona_id: uuid,
       tipo_cuenta_id: uuid,
-      numero_cuenta: z.string().trim().min(1).optional(),
-      cbu: z.string().trim().min(1).optional(),
-      moneda: esquemaDeMonedaDeCuenta.default('ARS'),
+      numero_cuenta: z.string().trim().min(1),
+      cbu: z.string().trim().min(1),
+      alias: optionalNullableString,
       saldo: numericString.optional(),
       activa: z.boolean().optional(),
+      banco_central_registrada: z.boolean().optional(),
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   tipos_transaccion: {
     table: 'tipos_transaccion',
     orderBy: 'nombre ASC',
     select: '*',
     allowedFilters: ['nombre'],
+    dto: aTipoDeTransaccionPublico,
+    inputDto: normalizeTipoTransaccionInput,
     createSchema: z.object({
       nombre: z.string().trim().min(1),
       descripcion: optionalNullableString,
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
   destinatarios: {
     table: 'destinatarios',
     orderBy: 'created_at DESC',
     select: '*',
     allowedFilters: ['persona_id', 'alias', 'cbu_externo'],
+    dto: aDestinatarioPublico,
+    inputDto: normalizeDestinatarioInput,
     createSchema: z.object({
       persona_id: uuid,
       alias: optionalNullableString,
       cbu_externo: z.string().trim().min(1),
       banco_externo: optionalNullableString,
     }),
+    access: {
+      list: [restrictQueryToCurrentPersona()],
+      get: [requireOwnershipByEntity('destinatarios')],
+      create: [injectCurrentPersona()],
+      update: [requireOwnershipByEntity('destinatarios')],
+      delete: [requireOwnershipByEntity('destinatarios')],
+    },
   },
   auditoria: {
     table: 'auditoria',
@@ -119,6 +213,13 @@ const entities = {
       payload_despues: z.record(z.string(), z.any()).nullable().optional(),
       ip_address: optionalNullableString,
     }),
+    access: {
+      list: internalOnly,
+      get: internalOnly,
+      create: internalOnly,
+      update: internalOnly,
+      delete: internalOnly,
+    },
   },
 };
 
@@ -126,14 +227,28 @@ entities.transacciones = {
   table: 'transacciones',
   orderBy: 'created_at DESC',
   select: '*',
-  allowedFilters: ['tipo_transaccion_id', 'cuenta_origen_id', 'cuenta_destino_id', 'estado'],
+  allowedFilters: [
+    'tipo_transaccion_id',
+    'cuenta_origen_id',
+    'cuenta_destino_id',
+    'estado',
+    'canal',
+    'central_transaction_id',
+    'cbu_origen',
+    'cbu_destino',
+  ],
+  dto: aTransaccionPublica,
   createSchema: z.object({
     tipo_transaccion_id: uuid,
-    cuenta_origen_id: uuid,
+    cuenta_origen_id: uuid.nullable().optional(),
     cuenta_destino_id: uuid.nullable().optional(),
     monto: numericString,
     descripcion: optionalNullableString,
     estado: z.enum(['pendiente', 'completada', 'rechazada']).optional(),
+    central_transaction_id: optionalNullableString,
+    canal: z.enum(['local', 'interbancaria_saliente', 'interbancaria_entrante']).optional(),
+    cbu_origen: optionalNullableString,
+    cbu_destino: optionalNullableString,
   }),
 };
 

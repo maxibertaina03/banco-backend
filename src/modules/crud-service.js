@@ -1,11 +1,29 @@
 const pool = require('../db/pool');
 const HttpError = require('../utils/http-error');
 const { buildFilters, buildInsertQuery, buildUpdateQuery } = require('../utils/sql');
-const { generarCbu, generarNumeroDeCuenta, normalizarMonedaDeCuenta } = require('../utils/cuentas');
+const { escribirLogDeAuditoria } = require('../utils/audit');
 
-async function listar(entityConfig, queryParams = {}) {
-  const page = Number(queryParams.page || 1);
-  const limit = Math.min(Number(queryParams.limit || 20), 100);
+// Convención: las entidades pueden declarar `dto` (función fila→respuesta
+// pública) y `inputDto` (función body→payload normalizado para SQL). Si la
+// entidad no las declara, se devuelve la fila cruda y se inserta el body tal
+// cual (comportamiento previo). Esto permite migrar entidades una a una sin
+// romper las que aún no tienen DTO.
+
+function applyDto(entityConfig, row) {
+  if (!row) return row;
+  return entityConfig.dto ? entityConfig.dto(row) : row;
+}
+
+function applyInputDto(entityConfig, body) {
+  return entityConfig.inputDto ? entityConfig.inputDto(body) : body;
+}
+
+async function list(entityConfig, queryParams = {}) {
+  // page y limit ya vienen validados y coerced a number por
+  // `paginationSchema` en crud-router. Si este service se llama desde otro
+  // contexto (sin middleware), aplicamos defaults defensivos.
+  const page = typeof queryParams.page === 'number' ? queryParams.page : 1;
+  const limit = typeof queryParams.limit === 'number' ? queryParams.limit : 20;
   const offset = (page - 1) * limit;
 
   const { clauses, values } = buildFilters(entityConfig.allowedFilters, queryParams);
@@ -22,81 +40,130 @@ async function listar(entityConfig, queryParams = {}) {
     page,
     limit,
     count: result.rows.length,
-    data: result.rows,
+    data: result.rows.map((row) => applyDto(entityConfig, row)),
   };
 }
 
-async function obtenerPorId(entityConfig, id) {
+async function getById(entityConfig, id) {
   const result = await pool.query(`SELECT ${entityConfig.select} FROM ${entityConfig.table} WHERE id = $1`, [id]);
 
   if (result.rowCount === 0) {
     throw new HttpError(404, `No existe el recurso en ${entityConfig.table} con id ${id}.`);
   }
 
-  return result.rows[0];
+  return applyDto(entityConfig, result.rows[0]);
 }
 
-async function crear(entityConfig, payload) {
-  const payloadNormalizado = { ...payload };
+async function create(entityConfig, payload, auditContext = {}) {
+  const client = await pool.connect();
 
-  if (entityConfig.table === 'cuentas') {
-    const moneda = normalizarMonedaDeCuenta(payloadNormalizado.moneda ?? 'ARS');
-    payloadNormalizado.moneda = moneda;
+  try {
+    await client.query('BEGIN');
 
-    if (!payloadNormalizado.numero_cuenta) {
-      payloadNormalizado.numero_cuenta = generarNumeroDeCuenta(moneda);
-    }
+    const normalized = applyInputDto(entityConfig, payload);
+    const query = buildInsertQuery(entityConfig.table, normalized);
+    const result = await client.query(query);
+    const created = result.rows[0];
 
-    if (!payloadNormalizado.cbu) {
-      payloadNormalizado.cbu = generarCbu(moneda);
-    }
+    // payloadDespues queda con la fila cruda: la auditoría es interna y se
+    // beneficia de tener todos los campos, incluidos los no expuestos.
+    await escribirLogDeAuditoria(client, {
+      usuarioId: auditContext.usuarioId,
+      accion: 'CREATE',
+      entidad: entityConfig.table,
+      entidadId: created.id,
+      payloadDespues: created,
+      ipAddress: auditContext.ipAddress,
+    });
 
-    if (payloadNormalizado.saldo === undefined) {
-      payloadNormalizado.saldo = '0.00';
-    }
+    await client.query('COMMIT');
+    return applyDto(entityConfig, created);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
-    const existingCbu = await pool.query('SELECT id FROM cuentas WHERE cbu = $1 LIMIT 1', [payloadNormalizado.cbu]);
-    if (existingCbu.rowCount > 0) {
-      throw new HttpError(409, 'Ya existe una cuenta con ese CBU.');
-    }
+async function update(entityConfig, id, payload, auditContext = {}) {
+  const client = await pool.connect();
 
-    const cuentaExistente = await pool.query(
-      'SELECT id FROM cuentas WHERE persona_id = $1 AND moneda = $2 LIMIT 1',
-      [payloadNormalizado.persona_id, moneda]
+  try {
+    await client.query('BEGIN');
+
+    const previousResult = await client.query(
+      `SELECT ${entityConfig.select} FROM ${entityConfig.table} WHERE id = $1`,
+      [id]
     );
 
-    if (cuentaExistente.rowCount > 0) {
-      throw new HttpError(409, `La persona ya tiene una cuenta en ${moneda}.`);
+    if (previousResult.rowCount === 0) {
+      throw new HttpError(404, `No existe el recurso en ${entityConfig.table} con id ${id}.`);
     }
-  }
 
-  const query = buildInsertQuery(entityConfig.table, payloadNormalizado);
-  const result = await pool.query(query);
-  return result.rows[0];
+    const previous = previousResult.rows[0];
+    const normalized = applyInputDto(entityConfig, payload);
+    const query = buildUpdateQuery(entityConfig.table, id, normalized);
+    const result = await client.query(query);
+    const updated = result.rows[0];
+
+    await escribirLogDeAuditoria(client, {
+      usuarioId: auditContext.usuarioId,
+      accion: 'UPDATE',
+      entidad: entityConfig.table,
+      entidadId: updated.id,
+      payloadAntes: previous,
+      payloadDespues: updated,
+      ipAddress: auditContext.ipAddress,
+    });
+
+    await client.query('COMMIT');
+    return applyDto(entityConfig, updated);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
-async function actualizar(entityConfig, id, payload) {
-  await obtenerPorId(entityConfig, id);
+async function remove(entityConfig, id, auditContext = {}) {
+  const client = await pool.connect();
 
-  const query = buildUpdateQuery(entityConfig.table, id, payload);
-  const result = await pool.query(query);
-  return result.rows[0];
-}
+  try {
+    await client.query('BEGIN');
 
-async function eliminar(entityConfig, id) {
-  const result = await pool.query(`DELETE FROM ${entityConfig.table} WHERE id = $1 RETURNING *`, [id]);
+    const result = await client.query(`DELETE FROM ${entityConfig.table} WHERE id = $1 RETURNING *`, [id]);
 
-  if (result.rowCount === 0) {
-    throw new HttpError(404, `No existe el recurso en ${entityConfig.table} con id ${id}.`);
+    if (result.rowCount === 0) {
+      throw new HttpError(404, `No existe el recurso en ${entityConfig.table} con id ${id}.`);
+    }
+
+    const deleted = result.rows[0];
+
+    await escribirLogDeAuditoria(client, {
+      usuarioId: auditContext.usuarioId,
+      accion: 'DELETE',
+      entidad: entityConfig.table,
+      entidadId: deleted.id,
+      payloadAntes: deleted,
+      ipAddress: auditContext.ipAddress,
+    });
+
+    await client.query('COMMIT');
+    return applyDto(entityConfig, deleted);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
-
-  return result.rows[0];
 }
 
 module.exports = {
-  actualizar,
-  crear,
-  eliminar,
-  listar,
-  obtenerPorId,
+  create,
+  getById,
+  list,
+  remove,
+  update,
 };
