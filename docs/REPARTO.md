@@ -12,71 +12,83 @@ detrás. Se encuentran cuando los dos lados están listos.
 
 ## Gonza
 
-### 1. Traer el chatbot del backend a `main` — *puede arrancar ya*
+### 1. Traer el chatbot del backend a `main` — *en curso*
 
-Es lo único suyo que quedó afuera. **Se hace con un merge, no portando archivos
-a mano.** Se midió: da 9 archivos en conflicto con 1 o 2 bloques cada uno, más
-`package-lock.json`, que no se resuelve sino que se regenera. Es media hora.
+**Estado al 10/9: el merge ya está hecho, faltan 6 conflictos por resolver.**
 
-**La rama `gonza` no se borra.** Sigue siendo su rama de trabajo; lo que cambia
-es que se sincroniza seguido.
+> ⚠️ **No borrar `crud-router.js`, `crud-service.js` ni `entities.js`.** No están
+> obsoletos: en `main` montan **nueve grupos de rutas** (personas, roles,
+> personas-roles, usuarios, tipos-cuenta, cuentas, tipos-transaccion,
+> destinatarios y auditoría). Borrarlos deja el banco sin media API.
+>
+> Los services por dominio que aparecen en el merge (cuentas, tarjetas,
+> préstamos, plazos fijos) son para lo que el CRUD genérico **no puede** hacer:
+> `FOR UPDATE`, llamadas al Banco Central, cálculo financiero. Son un
+> complemento, no un reemplazo. Prisma tampoco reemplaza nada: es fuente de
+> verdad del schema y las migraciones, y los services siguen en SQL crudo por
+> decisión deliberada (ver `prisma/README.md`).
 
-**1. El merge.**
+**Por qué la lista de "Changes to be committed" es tan larga.** No es un refactor
+a revisar archivo por archivo: la rama está 41 commits atrás, así que el merge
+trae todo lo que `main` sumó desde abril y git lo lista como "new file". Es lo
+normal en un merge así.
 
-```bash
-cd banco-backend
-git checkout gonza && git pull
-rm package-lock.json          # se regenera, no vale la pena resolverlo
-git merge origin/main
-```
+**Los 6 conflictos se resuelven todos igual.** Comparados contra el ancestro
+común, **la rama de Gonza no cambió ninguno de los seis**; sólo los cambió `main`:
 
-**2. Resolver los conflictos.** Son todos "agregar/agregar": archivos que
-existen en las dos ramas por caminos distintos.
+| Archivo | Cambios de la rama | Cambios de `main` |
+|---|---|---|
+| `schema.sql` | ninguno | +51 −5 |
+| `src/middlewares/error-handler.js` | ninguno | +36 −6 |
+| `src/modules/crud-router.js` | ninguno | +17 −3 |
+| `src/modules/crud-service.js` | ninguno | +120 −19 |
+| `src/modules/entities.js` | ninguno | +126 −4 |
+| `src/modules/transacciones-router.js` | ninguno | +238 −102 |
 
-| Archivo | Qué hacer |
-|---|---|
-| `src/utils/logger.js` | Quedarse con la de `main` |
-| `src/middlewares/clerk-auth.js` | Quedarse con la de `main` |
-| `src/modules/auth-router.js` | Quedarse con la de `main` |
-| `docs/GUIA_RAPIDA.md` | Quedarse con la de `main` |
-| `package.json` | Quedarse con la de `main`: ya trae `axios`, `express-rate-limit` y `pino` |
-| `src/app.js` | Quedarse con la de `main`: lo que agregaba la rama vieja ya está |
-| `src/routes/index.js` | La de `main` **más** `router.use('/chatbot', chatbotRouter)`. **`relationsRouter` va último**, porque está montado en `/` |
-| `src/config/env.js` | La de `main` **más** `geminiApiKey` y `geminiModel` |
-| `.env.example` | La de `main` **más** `GEMINI_API_KEY` |
-
-Después, `npm install` para regenerar el lock.
-
-**3. Cuatro arreglos que van sí o sí**, porque `main` cambió debajo:
-
-- **El import de `clerk-auth`**, que ahora exporta un objeto:
-  `const { clerkAuth } = require('../middlewares/clerk-auth');`
-- **Sacar `clerkAuth` de los middlewares del router.** `app.js` ya lo aplica
-  sobre todo `/api` y el chatbot cuelga de ahí, así que dejarlo valida el token
-  dos veces. Si se saca del todo, el punto anterior ni hace falta.
-- **La consulta de saldos no trae la moneda.** Es el más importante: desde la
-  migración multi-moneda una persona puede tener caja en pesos **y** en dólares.
-  En `chatbot-service.js`, cambiar
-  `SELECT c.cbu, NULL::text AS alias, c.numero_cuenta, c.saldo, c.activa`
-  por `SELECT c.cbu, c.alias, c.numero_cuenta, c.saldo, c.moneda, c.activa`,
-  y agregar `currency: account.moneda` al objeto de abajo. Sin esto el asistente
-  contesta "tenés 420.000 y 100" sin aclarar que lo segundo son dólares.
-- **Leer [GLOSARIO.md](GLOSARIO.md)** antes de escribir código nuevo: todo el
-  dominio pasó a español.
-
-**4. Verificar, en este orden.**
+Así que no hay nada que preservar y no hay decisión de arquitectura que tomar:
 
 ```bash
-npm test                        # los de main más los del chatbot
-node -e "require('./src/app')"  # ESTE es el que importa
-npm run dev
+git checkout --theirs schema.sql \
+                      src/middlewares/error-handler.js \
+                      src/modules/crud-router.js \
+                      src/modules/crud-service.js \
+                      src/modules/entities.js \
+                      src/modules/transacciones-router.js
+git add schema.sql src/middlewares/error-handler.js src/modules/crud-router.js \
+        src/modules/crud-service.js src/modules/entities.js src/modules/transacciones-router.js
 ```
 
-El segundo no se saltea: **ni los tests ni el build detectan un import roto**,
+En un merge, `--theirs` es la rama que se está trayendo, o sea `main`.
+
+**El `package-lock.json`** se regenera, no se resuelve a mano:
+
+```bash
+rm -f package-lock.json && npm install
+```
+
+**El import de `clerk-auth` en `chatbot-router.js`.** No aparece en el
+`git status` porque ya está commiteado en la rama, pero sigue mal: la línea 7
+tiene `const clerkAuth = require(...)` y en `main` ese módulo exporta un objeto.
+Además `app.js` ya aplica `clerkAuth` sobre todo `/api`, así que en el router
+sobra. **Lo más limpio es borrar el import y sacar `clerkAuth` de la línea 33.**
+
+**Y la consulta de saldos, que es lo que más importa.** En `chatbot-service.js`,
+cambiar `SELECT c.cbu, NULL::text AS alias, c.numero_cuenta, c.saldo, c.activa`
+por `SELECT c.cbu, c.alias, c.numero_cuenta, c.saldo, c.moneda, c.activa`, y
+agregar `currency: account.moneda` al objeto de abajo. Sin esto el asistente le
+dice al cliente "tenés 420.000 y 100" sin aclarar que lo segundo son dólares.
+
+**Cerrar, en este orden:**
+
+```bash
+git commit                       # cierra el merge
+npm test                         # 267 de main + los del chatbot
+node -e "require('./src/app')"   # ESTE es el que caza los imports rotos
+npm run dev                      # y probar el chat
+```
+
+El tercero no se saltea: **ni los tests ni el build detectan un import roto**,
 sólo aparece al arrancar la app.
-
-**5. PR `gonza` → `main`**, CI en verde, merge. Y después del merge,
-`git merge origin/main` para quedar al día.
 
 ### 2. El asistente, de solo lectura — *después del punto 1*
 
