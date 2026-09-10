@@ -101,9 +101,28 @@ lectura a los datos y, sobre todo, **el test que hay que escribir sí o sí**: q
 pueda contestar sobre *otro* cliente, aunque se lo pidan de formas rebuscadas. Ese es
 el criterio de cierre de la fase.
 
-### 3. `banco-proveedores` — *el repo TODAVÍA NO EXISTE*
+### 3. `banco-proveedores` — ✅ **construido y andando** (10/9)
 
-**Estado al 10/9: sólo está escrito el contrato.** El repo hay que crearlo.
+El repo ya existe, implementa los 5 endpoints del contrato y tiene 23 tests en
+verde. Está en `PRACTICA2026/Banco/banco-proveedores`, con un commit local:
+**falta crearlo en GitHub y pushear.**
+
+```bash
+cd banco-proveedores && npm install && cp .env.example .env && npm run dev
+curl -H "x-api-key: orbital-proveedores-2026" http://localhost:4000/empresas
+```
+
+Trae su propia colección de Postman, CI y README. Lo que queda para Gonza es
+**consumirlo desde el banco**: un cliente HTTP en el backend con timeout y
+manejo de caída, más las pantallas del portal para pagar servicios y recargar.
+
+Tres cosas del mock que conviene saber antes de integrar:
+
+- **No mueve plata.** El débito de la cuenta lo hace el banco; el proveedor sólo
+  confirma que cobró.
+- **Un cliente al día devuelve `200` con lista vacía, no `404`.**
+- **Los números terminados en `0000` se rechazan con `422` a propósito**, para
+  poder probar el manejo de error sin apagar el servicio.
 
 Repo nuevo, mocks de terceros. El contrato está escrito:
 [openapi-banco-proveedores.yaml](openapi-banco-proveedores.yaml), 5 endpoints.
