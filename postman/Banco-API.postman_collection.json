@@ -1566,6 +1566,164 @@
               ]
             }
           }
+        },
+        {
+          "name": "Abrir cuenta en el Central (USD)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "accounts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dni\": \"30123456\",\n  \"moneda\": \"USD\",\n  \"environment\": \"test\"\n}"
+            },
+            "description": "201 la primera vez, 200 si ya existía. Con moneda ARS siempre da 200: la caja en pesos nace con POST /persons."
+          }
+        },
+        {
+          "name": "Buscar cuenta por CBU",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/accounts/{{centralCbu}}?environment=test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "accounts",
+                "{{centralCbu}}"
+              ],
+              "query": [
+                {
+                  "key": "environment",
+                  "value": "test"
+                }
+              ]
+            },
+            "description": "Devuelve moneda, saldo, alias y banco. Sirve para las DOS monedas, pese a que su documentación diga lo contrario."
+          }
+        },
+        {
+          "name": "Buscar cuenta por alias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/accounts/alias/{{centralAlias}}?environment=test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "accounts",
+                "alias",
+                "{{centralAlias}}"
+              ],
+              "query": [
+                {
+                  "key": "environment",
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Asignar alias a una cuenta",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/accounts/{{centralCbu}}/alias",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "accounts",
+                "{{centralCbu}}",
+                "alias"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"alias\": \"juan.perez.usd\",\n  \"environment\": \"test\"\n}"
+            },
+            "description": "El alias es único en todo el sistema."
+          }
+        },
+        {
+          "name": "Informar una deuda",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/central-deudores",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "central-deudores"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dni\": \"30123456\",\n  \"monto\": 150000,\n  \"situacion\": 1,\n  \"environment\": \"test\"\n}"
+            },
+            "description": "El flujo normal lo hace prestamos-service. Esta ruta es para corregir a mano. 201 la primera vez, 200 al actualizar."
+          }
+        },
+        {
+          "name": "Consultar situación crediticia",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/central-deudores/30123456?environment=test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "central-deudores",
+                "30123456"
+              ],
+              "query": [
+                {
+                  "key": "environment",
+                  "value": "test"
+                }
+              ]
+            },
+            "description": "La situación es la PEOR de las informadas por todos los bancos. Nunca da 404: un DNI sin deudas devuelve 200 con deudas vacías."
+          }
         }
       ]
     },
@@ -2523,6 +2681,334 @@
               ]
             },
             "description": "ArgentinaDatos, YA normalizadas a porcentaje. Ellos las publican como fracción decimal."
+          }
+        }
+      ]
+    },
+    {
+      "name": "▶ Flujo completo de demo",
+      "description": "Recorrido de punta a punta, en orden. Ir guardando los ids que devuelve cada paso en las variables de la colección.",
+      "item": [
+        {
+          "name": "1. Abrir caja en USD",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/personas/{{personaId}}/cuentas/apertura",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas",
+                "{{personaId}}",
+                "cuentas",
+                "apertura"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"moneda\": \"USD\"\n}"
+            },
+            "description": "Guardar el id que devuelve en la variable cuentaUsdId."
+          }
+        },
+        {
+          "name": "2. Ver la cotización",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/catalogos/cotizacion",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "catalogos",
+                "cotizacion"
+              ]
+            }
+          }
+        },
+        {
+          "name": "3. Comprar dólares",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/transacciones/cambio",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "transacciones",
+                "cambio"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_origen_id\": \"{{cuentaId}}\",\n  \"cuenta_destino_id\": \"{{cuentaUsdId}}\",\n  \"monto\": 153000\n}"
+            }
+          }
+        },
+        {
+          "name": "4. Simular un préstamo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/prestamos/simulaciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "prestamos",
+                "simulaciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"capital\": 1000000,\n  \"cuotas\": 12,\n  \"tna\": 72\n}"
+            },
+            "description": "Debe dar cuota 119277.03 y CFT 101.22: es el ejemplo acordado con los otros bancos."
+          }
+        },
+        {
+          "name": "5. Solicitarlo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/prestamos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "prestamos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_id\": \"{{cuentaId}}\",\n  \"capital\": 1000000,\n  \"cuotas\": 12,\n  \"tna\": 72\n}"
+            },
+            "description": "Guardar el id en prestamoId. Acredita el capital e informa la deuda al Central."
+          }
+        },
+        {
+          "name": "6. Pagar la primera cuota",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/prestamos/{{prestamoId}}/pagos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "prestamos",
+                "{{prestamoId}}",
+                "pagos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "7. Emitir tarjeta de crédito",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tarjetas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tarjetas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"persona_id\": \"{{personaId}}\",\n  \"tipo\": \"credito\",\n  \"limite\": 500000\n}"
+            },
+            "description": "Guardar el id en tarjetaId."
+          }
+        },
+        {
+          "name": "8. Consumir con la tarjeta",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tarjetas/{{tarjetaId}}/autorizaciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tarjetas",
+                "{{tarjetaId}}",
+                "autorizaciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"comercio\": \"Supermercado Norte\",\n  \"monto\": 12500,\n  \"cuotas\": 3\n}"
+            }
+          }
+        },
+        {
+          "name": "9. Constituir un plazo fijo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/plazos-fijos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "plazos-fijos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_id\": \"{{cuentaId}}\",\n  \"capital\": 50000,\n  \"dias\": 30,\n  \"tna\": 58\n}"
+            }
+          }
+        },
+        {
+          "name": "10. Ver el extracto",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/cuentas/{{cuentaId}}/movimientos?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cuentas",
+                "{{cuentaId}}",
+                "movimientos"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Tienen que aparecer TODOS los movimientos anteriores: el cambio, el préstamo, la cuota, el consumo y el plazo fijo."
+          }
+        },
+        {
+          "name": "11. Resumen de gastos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/cuentas/{{cuentaId}}/resumen-gastos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cuentas",
+                "{{cuentaId}}",
+                "resumen-gastos"
+              ]
+            }
+          }
+        },
+        {
+          "name": "12. Verificar la deuda en el Central",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/central-bank/central-deudores/30123456?environment=test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "central-bank",
+                "central-deudores",
+                "30123456"
+              ],
+              "query": [
+                {
+                  "key": "environment",
+                  "value": "test"
+                }
+              ]
+            },
+            "description": "El préstamo del paso 5 tiene que figurar acá, visible para todos los bancos del curso."
           }
         }
       ]

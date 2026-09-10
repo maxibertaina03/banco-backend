@@ -101,7 +101,9 @@ lectura a los datos y, sobre todo, **el test que hay que escribir sí o sí**: q
 pueda contestar sobre *otro* cliente, aunque se lo pidan de formas rebuscadas. Ese es
 el criterio de cierre de la fase.
 
-### 3. `banco-proveedores` — *puede arrancar ya, en paralelo*
+### 3. `banco-proveedores` — *el repo TODAVÍA NO EXISTE*
+
+**Estado al 10/9: sólo está escrito el contrato.** El repo hay que crearlo.
 
 Repo nuevo, mocks de terceros. El contrato está escrito:
 [openapi-banco-proveedores.yaml](openapi-banco-proveedores.yaml), 5 endpoints.
