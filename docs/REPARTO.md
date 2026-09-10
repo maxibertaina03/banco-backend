@@ -103,9 +103,9 @@ el criterio de cierre de la fase.
 
 ### 3. `banco-proveedores` — ✅ **construido y andando** (10/9)
 
-El repo ya existe, implementa los 5 endpoints del contrato y tiene 23 tests en
-verde. Está en `PRACTICA2026/Banco/banco-proveedores`, con un commit local:
-**falta crearlo en GitHub y pushear.**
+**Repo:** <https://github.com/maxibertaina03/banco-proveedores> — público, con
+`main` y `develop`, y el CI en verde. Implementa los 5 endpoints del contrato con
+23 tests.
 
 ```bash
 cd banco-proveedores && npm install && cp .env.example .env && npm run dev
