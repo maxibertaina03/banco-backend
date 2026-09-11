@@ -53,7 +53,7 @@ function validarEntrada({ message, history = [] }) {
 
 async function armarContextoAutorizado(pool, personaId) {
   const cuentas = await pool.query(
-    `SELECT c.cbu, NULL::text AS alias, c.numero_cuenta, c.saldo, c.activa
+    `SELECT c.cbu, c.alias, c.numero_cuenta, c.saldo, c.moneda, c.activa
      FROM cuentas c
      WHERE c.persona_id = $1
      ORDER BY c.created_at DESC
@@ -67,6 +67,7 @@ async function armarContextoAutorizado(pool, personaId) {
       alias: cuenta.alias,
       numeroCuenta: cuenta.numero_cuenta,
       saldo: Number(cuenta.saldo || 0),
+      currency: account.moneda,
     })),
   };
 }
@@ -158,11 +159,11 @@ function crearServicioChatbot({
         'chatbot provider fallback activated'
       );
 
-      if (providerStatus === 401 || providerStatus === 403 || providerStatus === 404) {
+        if (providerStatus === 401 || providerStatus === 403 || providerStatus === 404) {
         return SAFE_PROVIDER_FALLBACK;
       }
 
-      return SAFE_PROVIDER_FALLBACK;
+      throw new HttpError(502, SAFE_PROVIDER_FALLBACK);
     }
   }
 

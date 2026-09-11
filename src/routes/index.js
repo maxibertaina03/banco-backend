@@ -7,6 +7,7 @@ const centralBankRouter = require('../modules/central-bank-router');
 const tarjetasRouter = require('../modules/tarjetas-router');
 const prestamosRouter = require('../modules/prestamos-router');
 const plazosFijosRouter = require('../modules/plazos-fijos-router');
+const chatbotRouter = require('../modules/chatbot-router');
 
 
 const router = express.Router();

@@ -4,7 +4,6 @@ const pool = require('../db/pool');
 const { z } = require('zod');
 const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
-const clerkAuth = require('../middlewares/clerk-auth');
 const HttpError = require('../utils/http-error');
 const { MAX_HISTORY_MESSAGES, MAX_MESSAGE_LENGTH, crearServicioChatbot } = require('./chatbot-service');
 
@@ -30,7 +29,6 @@ const messageSchema = z.object({
 
 router.post(
   '/message',
-  clerkAuth,
   chatbotLimiter,
   validate(messageSchema),
   asyncHandler(async (req, res) => {
