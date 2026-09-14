@@ -156,7 +156,8 @@ es un importe monetario.
 ### Fase 2 — Cimientos *(Maxi, backend)* — casi terminada
 Bloquea todo lo demás.
 - [x] Migración `20260908_cuentas_multimoneda.sql` — **falta correrla en Supabase**
-- [x] Seis rutas del Central en `central-bank-service`
+- [x] Seis rutas del Central en `central-bank-service`, más sus proxies HTTP
+      en `central-bank-router` para el panel admin
 - [x] Adapter de mercado en `src/modules/mercado/` + `mercado-service.js`
 - [x] Chequeo crediticio en `riesgo-crediticio.js`
 - [x] `POST /api/personas/:id/cuentas/apertura` con `cuentas-service.js`

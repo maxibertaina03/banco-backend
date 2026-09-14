@@ -53,7 +53,7 @@ router.post(
       tipo: req.body.tipo,
       cuentaId: req.body.cuenta_id ?? null,
       limite: req.body.limite ?? null,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
     res.status(201).json(aTarjetaPublica(tarjeta));
@@ -76,7 +76,7 @@ router.post(
       comercio: req.body.comercio,
       monto: req.body.monto,
       cuotas: req.body.cuotas ?? 1,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
 
@@ -94,7 +94,7 @@ router.post(
     const tarjeta = await tarjetasService.cambiarEstado({
       tarjetaId: req.params.id,
       accion: req.body.accion,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
     res.json(aTarjetaPublica(tarjeta));
@@ -109,7 +109,7 @@ router.get(
     const resumen = await tarjetasService.obtenerResumen({
       tarjetaId: req.params.id,
       periodo: req.query.periodo,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
     });
     res.json({ ...resumen, consumos: resumen.consumos.map(aAutorizacionPublica) });
   })

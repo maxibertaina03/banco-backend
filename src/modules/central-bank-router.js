@@ -81,6 +81,21 @@ const cuentasASincronizarBodySchema = environmentSchema.extend({
   limit: z.coerce.number().int().positive().max(200).optional(),
 });
 
+const abrirCuentaSchema = environmentSchema.extend({
+  dni: z.string().trim().regex(/^\d{7,8}$/, 'El DNI va con 7 u 8 dígitos.'),
+  moneda: z.enum(['ARS', 'USD']),
+});
+
+const dniParamsSchema = z.object({
+  dni: z.string().trim().regex(/^\d{7,8}$/, 'El DNI va con 7 u 8 dígitos.'),
+});
+
+const informarDeudaSchema = environmentSchema.extend({
+  dni: z.string().trim().regex(/^\d{7,8}$/),
+  monto: z.coerce.number().nonnegative(),
+  situacion: z.coerce.number().int().min(1).max(5),
+});
+
 const syncIncomingSchema = environmentSchema.extend({
   minutes: z.coerce.number().int().min(1).max(1440).optional(),
 });
@@ -291,3 +306,77 @@ router.post(
 );
 
 module.exports = router;
+
+// ── Cuentas multi-moneda y central de deudores ──────────────────────────────
+// Proxies de las seis rutas que el Banco Central publicó en agosto. El flujo
+// normal del banco NO pasa por acá: `cuentas-service` y `riesgo-crediticio`
+// llaman al service directo. Estas rutas existen para el panel de
+// administración y para poder inspeccionar el Central a mano.
+//
+// Los nombres van en inglés porque son los de su contrato (ver GLOSARIO §6).
+
+router.post(
+  '/accounts',
+  internalOnly,
+  validate(abrirCuentaSchema),
+  asyncHandler(async (req, res) => {
+    const { environment, ...payload } = req.body;
+    const resultado = await centralBankService.abrirCuentaCentral({ ...payload, environment });
+    res.status(resultado.status ?? 200).json(resultado.data ?? resultado);
+  })
+);
+
+router.get(
+  '/accounts/:cbu',
+  internalOnly,
+  validate(cbuParamsSchema, 'params'),
+  validate(environmentSchema, 'query'),
+  asyncHandler(async (req, res) => {
+    res.json(await centralBankService.buscarCuentaPorCbu(req.params.cbu, req.query.environment));
+  })
+);
+
+router.get(
+  '/accounts/alias/:alias',
+  internalOnly,
+  validate(aliasParamsSchema, 'params'),
+  validate(environmentSchema, 'query'),
+  asyncHandler(async (req, res) => {
+    res.json(await centralBankService.buscarCuentaPorAlias(req.params.alias, req.query.environment));
+  })
+);
+
+router.put(
+  '/accounts/:cbu/alias',
+  internalOnly,
+  validate(cbuParamsSchema, 'params'),
+  validate(aliasBodySchema),
+  asyncHandler(async (req, res) => {
+    res.json(await centralBankService.asignarAliasDeCuenta(
+      req.params.cbu, req.body.alias, req.body.environment
+    ));
+  })
+);
+
+// Informar una deuda propia. Lo hace `prestamos-service` en el flujo normal;
+// esta ruta sirve para corregir a mano un informe que quedó desactualizado.
+router.post(
+  '/central-deudores',
+  internalOnly,
+  validate(informarDeudaSchema),
+  asyncHandler(async (req, res) => {
+    const { environment, ...payload } = req.body;
+    const resultado = await centralBankService.informarDeuda({ ...payload, environment });
+    res.status(resultado.status ?? 200).json(resultado.data ?? resultado);
+  })
+);
+
+router.get(
+  '/central-deudores/:dni',
+  internalOnly,
+  validate(dniParamsSchema, 'params'),
+  validate(environmentSchema, 'query'),
+  asyncHandler(async (req, res) => {
+    res.json(await centralBankService.consultarSituacionCrediticia(req.params.dni, req.query.environment));
+  })
+);

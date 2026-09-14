@@ -17,7 +17,7 @@ function esUsuarioInterno(user) {
  *  - Cliente → sólo sobre su propia persona.
  *  - **Sin usuario** → sí. Es una llamada interna del backend (un script, un
  *    barrido, un test), no una request HTTP: las rutas bajo `/api` pasan por
- *    `clerkAuth` y `requireActiveUser`, así que ahí `currentUser` siempre existe.
+ *    `clerkAuth` y `requireActiveUser`, así que ahí `usuarioActual` siempre existe.
  *    Si algún día se monta una ruta fuera de ese pipeline, este es el supuesto
  *    que hay que revisar.
  */

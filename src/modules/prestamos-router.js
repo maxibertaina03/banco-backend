@@ -73,7 +73,7 @@ router.post(
       capital: req.body.capital,
       cuotas: req.body.cuotas,
       tna: req.body.tna ?? null,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
     res.status(201).json(aPrestamoPublico(prestamo));
@@ -85,7 +85,7 @@ router.get(
   validate(listadoSchema, 'query'),
   asyncHandler(async (req, res) => {
     const resultado = await prestamosService.listar({
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       estado: req.query.estado ?? null,
       page: req.query.page,
       limit: req.query.limit,
@@ -100,7 +100,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const prestamo = await prestamosService.obtenerPorId({
       prestamoId: req.params.id,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
     });
     res.json(aPrestamoPublico(prestamo));
   })
@@ -113,7 +113,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const resultado = await prestamosService.pagarCuota({
       prestamoId: req.params.id,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
     res.status(201).json({
@@ -132,7 +132,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const resultado = await prestamosService.precancelar({
       prestamoId: req.params.id,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
     res.json({
