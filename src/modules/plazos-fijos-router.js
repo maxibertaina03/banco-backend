@@ -61,7 +61,7 @@ router.post(
       capital: req.body.capital,
       dias: req.body.dias,
       tna: req.body.tna ?? null,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
     res.status(201).json(aPlazoFijoPublico(pf));
@@ -73,7 +73,7 @@ router.get(
   validate(listadoSchema, 'query'),
   asyncHandler(async (req, res) => {
     const resultado = await plazosFijosService.listar({
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       estado: req.query.estado ?? null,
       page: req.query.page,
       limit: req.query.limit,
@@ -91,7 +91,7 @@ router.post(
     const resultado = await plazosFijosService.acreditar({
       plazoFijoId: req.params.id,
       anticipada: req.body?.anticipada ?? false,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
     res.json({

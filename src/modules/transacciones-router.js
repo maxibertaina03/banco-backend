@@ -211,7 +211,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const result = await service.crearTransferencia({
       ...req.body,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
     res.status(201).json(aTransaccionPublica(result.transaccion));
@@ -227,7 +227,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const result = await service.crearExtraccion({
       ...req.body,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
     res.status(201).json(aTransaccionPublica(result.transaccion));
@@ -243,7 +243,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const result = await service.crearCambioDeDivisa({
       ...req.body,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
     res.status(201).json({

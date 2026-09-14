@@ -195,7 +195,7 @@ router.post(
       personaId: req.params.id,
       moneda: req.body.moneda,
       alias: req.body.alias ?? null,
-      usuarioActual: req.currentUser,
+      usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
       environment: req.body.environment,
     });
