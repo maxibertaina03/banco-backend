@@ -351,8 +351,9 @@ function createTarjetasService({
     return {
       periodo: `${anio}-${String(mes).padStart(2, '0')}`,
       vencimiento: vencimiento.toISOString().slice(0, 10),
-      total_a_pagar: total.aString(),
-      pago_minimo: pagoMinimo.aString(),
+      // Como número, igual que el resto de los importes de la API.
+      total_a_pagar: total.aNumero(),
+      pago_minimo: pagoMinimo.aNumero(),
       consumos: consumos.rows,
     };
   }

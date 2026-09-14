@@ -188,6 +188,15 @@ describe('cambiarEstado', () => {
 });
 
 describe('obtenerResumen', () => {
+  it('expone los importes como número, igual que el resto de la API', async () => {
+    // Venían como string ("0.00") y el frontend los recibía distinto que todo
+    // el resto de los montos.
+    const { servicio } = armar();
+    const r = await servicio.obtenerResumen({ tarjetaId: 't-cred' });
+    expect(typeof r.total_a_pagar).toBe('number');
+    expect(typeof r.pago_minimo).toBe('number');
+  });
+
   it('las de débito no tienen resumen', async () => {
     const { servicio } = armar({ tarjeta: DEBITO });
     await expect(servicio.obtenerResumen({ tarjetaId: 't-deb' }))

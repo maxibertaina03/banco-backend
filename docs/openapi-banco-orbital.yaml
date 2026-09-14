@@ -348,8 +348,11 @@ components:
           description: '`null` cuando el destino es de otro banco.'
         cbu_origen: { type: string, nullable: true }
         cbu_destino: { type: string, nullable: true }
-        monto: { $ref: '#/components/schemas/Monto' }
-        moneda: { $ref: '#/components/schemas/Moneda' }
+        monto:
+          allOf: [{ $ref: '#/components/schemas/Monto' }]
+          description: |
+            En la moneda de la cuenta. El movimiento no trae la moneda: se toma de
+            la cuenta consultada, que no puede cambiar de moneda.
         descripcion: { type: string, nullable: true, example: Pago alquiler }
         estado:
           type: string
@@ -394,6 +397,12 @@ components:
           description: Pesos que el cliente paga por cada dólar que le compra al banco.
           example: 1515
         fecha_actualizacion: { type: string, format: date-time }
+        desde_respaldo:
+          type: boolean
+          description: |
+            `true` si DolarAPI no respondió y es el último valor conocido. Sirve
+            para mostrar, no para operar: con respaldo el cambio responde `503`.
+          example: false
 
     Tarjeta:
       type: object
@@ -498,7 +507,6 @@ components:
           description: Costo Financiero Total anual en porcentaje. Sin cargos extra coincide con la TEA.
           example: 101.22
         saldo_deuda: { $ref: '#/components/schemas/Monto' }
-        cuotas_pagadas: { type: integer, example: 1 }
         estado:
           type: string
           enum: [vigente, cancelado, en_mora]
@@ -1171,7 +1179,6 @@ paths:
                   vencimiento: { type: string, format: date, example: '2026-10-10' }
                   total_a_pagar: { $ref: '#/components/schemas/Monto' }
                   pago_minimo: { $ref: '#/components/schemas/Monto' }
-                  cft: { type: number, example: 101.22 }
                   consumos:
                     type: array
                     items: { $ref: '#/components/schemas/Autorizacion' }
@@ -1393,7 +1400,13 @@ paths:
           description: Préstamo precancelado.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Prestamo' }
+              schema:
+                type: object
+                properties:
+                  prestamo: { $ref: '#/components/schemas/Prestamo' }
+                  capital_pagado:
+                    allOf: [{ $ref: '#/components/schemas/Monto' }]
+                    description: Lo que se debitó de la cuenta.
         '401': { $ref: '#/components/responses/NoAutorizado' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '409':
@@ -1593,6 +1606,9 @@ paths:
                   plazo_fijo: { $ref: '#/components/schemas/PlazoFijo' }
                   total_acreditado: { $ref: '#/components/schemas/Monto' }
                   dias_transcurridos: { type: integer, example: 30 }
+                  anticipada:
+                    type: boolean
+                    description: '`true` si fue un rescate antes del vencimiento, con la tasa reducida.'
         '400':
           description: Todavía no venció y no se pidió rescate anticipado.
         '401': { $ref: '#/components/responses/NoAutorizado' }
