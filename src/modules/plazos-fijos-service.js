@@ -158,7 +158,8 @@ function createPlazosFijosService({
       if (!vencio && !anticipada) {
         throw new HttpError(
           400,
-          `El plazo fijo vence el ${pf.fecha_vencimiento}. Para rescatarlo antes hay que pedirlo explícitamente.`
+          // Formateada a mano: interpolar el Date de pg mostraba "Wed Oct 14 2026 00:00:00 GMT-0300".
+          `El plazo fijo vence el ${aFechaSimple(pf.fecha_vencimiento).split('-').reverse().join('/')}. Para rescatarlo antes hay que pedirlo explícitamente.`
         );
       }
 

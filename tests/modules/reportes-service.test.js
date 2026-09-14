@@ -29,7 +29,7 @@ describe('categoriaDe — la dirección cambia la categoría', () => {
 
   it('el plazo fijo distingue constituir de cobrar', () => {
     expect(categoriaDe('plazo_fijo_constitucion', false)).toBe('Inversiones');
-    expect(categoriaDe('plazo_fijo_acreditacion', true)).toBe('Rendimiento de inversiones');
+    expect(categoriaDe('plazo_fijo_acreditacion', true)).toBe('Inversiones cobradas');
   });
 
   it('un canal desconocido cae en Otros, sin romper', () => {

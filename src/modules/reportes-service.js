@@ -24,7 +24,8 @@ const CATEGORIAS = {
   prestamo_acreditado:      { sale: 'Préstamos',                entra: 'Préstamos recibidos' },
   cuota_prestamo:           { sale: 'Cuotas de préstamo',       entra: 'Préstamos' },
   plazo_fijo_constitucion:  { sale: 'Inversiones',              entra: 'Inversiones' },
-  plazo_fijo_acreditacion:  { sale: 'Inversiones',              entra: 'Rendimiento de inversiones' },
+  // Lo que entra es capital más interés, no sólo rendimiento: por eso no se llama así.
+  plazo_fijo_acreditacion:  { sale: 'Inversiones',              entra: 'Inversiones cobradas' },
 };
 
 const SIN_CATEGORIA = { sale: 'Otros gastos', entra: 'Otros ingresos' };
