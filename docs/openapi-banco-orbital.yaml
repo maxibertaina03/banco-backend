@@ -66,6 +66,14 @@ info:
     **Para código nuevo, usar las de este documento.** Las heredadas se van a ir
     retirando a medida que el portal migre.
 
+    ## Rutas pendientes de implementar
+
+    Las operaciones marcadas con `x-pendiente: true` ya tienen el contrato
+    **cerrado** pero todavía no existen en el backend. El frontend puede
+    construir contra ellas con mocks desde hoy. Quien las implementa respeta el
+    contrato tal cual y, al terminar, **borra la marca `x-pendiente`**: a partir
+    de ese momento el test de contrato exige que la ruta exista.
+
     ## Idempotencia
 
     Los endpoints marcados con `Idempotency-Key` aceptan un UUID v4 por header. Si se
@@ -101,6 +109,12 @@ tags:
     description: NUEVO en v1 — Simulación, solicitud, cuotas y precancelación.
   - name: Inversiones
     description: NUEVO en v1 — Plazos fijos.
+  - name: Servicios
+    description: |
+      PENDIENTE DE IMPLEMENTAR — Pago de facturas de servicios (luz, gas, agua,
+      internet). El banco consume banco-proveedores y debita la cuenta.
+  - name: Recargas
+    description: PENDIENTE DE IMPLEMENTAR — Recarga de celulares prepagos.
   - name: Catálogos
     description: Tipos de cuenta, tipos de transacción y cotizaciones.
 
@@ -157,6 +171,24 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: 'No existe el recurso solicitado.' }
+    ProveedorNoDisponible:
+      description: |
+        banco-proveedores no respondió a tiempo o está caído. **No se debitó
+        nada.** Mostrar "el servicio no está disponible, intentá en unos
+        minutos", no un error genérico.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: 'El proveedor no está disponible en este momento. Intentá de nuevo en unos minutos.' }
+    ProveedorRechazo:
+      description: |
+        El proveedor respondió pero **rechazó la operación**. No se debitó nada.
+        Se distingue del 422 (saldo insuficiente, regla del banco) justamente
+        para que la pantalla muestre el motivo correcto.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: 'La operadora rechazó la recarga para ese número.' }
     ErrorValidacion:
       description: El cuerpo o los parámetros no pasaron la validación.
       content:
@@ -184,6 +216,49 @@ components:
             Detalle adicional. Presente en errores de validación (con `fieldErrors`)
             y en desarrollo. Nunca expone internos de la base en producción.
       additionalProperties: false
+
+    EmpresaServicio:
+      type: object
+      properties:
+        id: { type: string, example: edenor }
+        nombre: { type: string, example: Edenor }
+        rubro:
+          type: string
+          enum: [luz, gas, agua, internet, telefonia, cable, otros]
+          example: luz
+        formato_numero_cliente:
+          type: string
+          description: Pista para validar en el formulario antes de consultar.
+          example: '9 dígitos'
+
+    Factura:
+      type: object
+      description: |
+        Factura de una empresa de servicios. Viene de banco-proveedores, pero el
+        banco la expone con **`monto`** y no `importe`, según el glosario:
+        `importe` se reserva para lo que viaja hacia el Banco Central.
+      properties:
+        id: { type: string, example: fac-edenor-202608 }
+        empresa_id: { type: string, example: edenor }
+        numero_cliente: { type: string, example: '123456789' }
+        periodo: { type: string, example: '2026-08' }
+        monto: { $ref: '#/components/schemas/Monto' }
+        vencimiento: { type: string, format: date, example: '2026-09-20' }
+        estado:
+          type: string
+          enum: [impaga, vencida, pagada]
+          example: impaga
+
+    Operadora:
+      type: object
+      properties:
+        id: { type: string, example: movistar }
+        nombre: { type: string, example: Movistar }
+        montos_disponibles:
+          type: array
+          items: { type: number }
+          description: Únicos montos que acepta. El formulario debería ofrecerlos como opciones, no como campo libre.
+          example: [500, 1000, 2000, 5000, 10000]
 
     Paginado:
       type: object
@@ -283,7 +358,7 @@ components:
         canal:
           type: string
           nullable: true
-          enum: [local, interbancaria_saliente, interbancaria_entrante, deposito_efectivo, extraccion_efectivo, cambio_divisa]
+          enum: [local, interbancaria_saliente, interbancaria_entrante, deposito_efectivo, extraccion_efectivo, cambio_divisa, prestamo_acreditado, cuota_prestamo, plazo_fijo_constitucion, plazo_fijo_acreditacion, consumo_tarjeta, pago_servicio, recarga_celular]
           description: Por dónde pasó la operación. Lo usa el frontend para elegir el ícono y el texto.
           example: local
         central_transaction_id:
@@ -1524,6 +1599,266 @@ paths:
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '409':
           description: El plazo fijo ya estaba cerrado.
+
+  # ───────────────────────────── Servicios ─────────────────────────────
+  /api/servicios/empresas:
+    get:
+      x-pendiente: true
+      tags: [Servicios]
+      summary: Listar empresas de servicios
+      description: Catálogo para el selector de "Pagar servicios". Proxy de banco-proveedores.
+      parameters:
+        - name: rubro
+          in: query
+          required: false
+          schema: { type: string, enum: [luz, gas, agua, internet, telefonia, cable, otros] }
+      responses:
+        '200':
+          description: Empresas disponibles.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/EmpresaServicio' }
+        '400': { $ref: '#/components/responses/ErrorValidacion' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '503': { $ref: '#/components/responses/ProveedorNoDisponible' }
+
+  /api/servicios/empresas/{empresaId}/deuda:
+    get:
+      x-pendiente: true
+      tags: [Servicios]
+      summary: Consultar la deuda de un número de cliente
+      description: |
+        Facturas impagas y vencidas. **Un cliente al día devuelve `200` con
+        `facturas: []`**, no `404`: el cliente existe, simplemente no debe nada.
+        La pantalla tiene que mostrar "no tenés deuda", no "cliente inexistente".
+      parameters:
+        - name: empresaId
+          in: path
+          required: true
+          schema: { type: string, example: edenor }
+        - name: numero_cliente
+          in: query
+          required: true
+          schema: { type: string, example: '123456789' }
+      responses:
+        '200':
+          description: Deuda del cliente. Lista vacía si está al día.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  empresa: { $ref: '#/components/schemas/EmpresaServicio' }
+                  numero_cliente: { type: string, example: '123456789' }
+                  total_adeudado: { $ref: '#/components/schemas/Monto' }
+                  facturas:
+                    type: array
+                    items: { $ref: '#/components/schemas/Factura' }
+              example:
+                empresa: { id: edenor, nombre: Edenor, rubro: luz, formato_numero_cliente: '9 dígitos' }
+                numero_cliente: '123456789'
+                total_adeudado: 84220.85
+                facturas:
+                  - { id: fac-edenor-202608, empresa_id: edenor, numero_cliente: '123456789', periodo: '2026-08', monto: 45320.75, vencimiento: '2026-09-20', estado: impaga }
+                  - { id: fac-edenor-202607, empresa_id: edenor, numero_cliente: '123456789', periodo: '2026-07', monto: 38900.10, vencimiento: '2026-08-20', estado: vencida }
+        '400':
+          description: Falta `numero_cliente`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '404':
+          description: La empresa no existe.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/ProveedorNoDisponible' }
+
+  /api/servicios/pagos:
+    post:
+      x-pendiente: true
+      tags: [Servicios]
+      summary: Pagar una factura
+      description: |
+        Debita la cuenta y le avisa al proveedor que la factura quedó cobrada.
+
+        **El monto NO lo manda el cliente.** El banco lo lee de la factura en el
+        proveedor. Si lo mandara el cliente, podría pagar una factura de 45.000
+        enviando 1.
+
+        **Orden de las operaciones**, que es lo que evita cobrar sin pagar:
+
+        1. Lee la factura del proveedor y toma su monto.
+        2. Bloquea la cuenta (`FOR UPDATE`) y verifica saldo.
+        3. Le pide el cobro al proveedor, con `Idempotency-Key`.
+        4. Sólo si el proveedor confirmó: debita con `movimientos.debitar()`
+           (canal `pago_servicio`) y hace commit.
+
+        Si el paso 3 falla, rollback: **no se debita nada**.
+
+        Sólo desde cuentas en **ARS**: las facturas están en pesos.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cuenta_id, empresa_id, numero_cliente, factura_id]
+              properties:
+                cuenta_id: { type: string, format: uuid }
+                empresa_id: { type: string, example: edenor }
+                numero_cliente: { type: string, example: '123456789' }
+                factura_id: { type: string, example: fac-edenor-202608 }
+            example:
+              cuenta_id: 4b1c8e2a-0000-4000-8000-000000000001
+              empresa_id: edenor
+              numero_cliente: '123456789'
+              factura_id: fac-edenor-202608
+      responses:
+        '201':
+          description: Factura pagada y cuenta debitada.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaccion: { $ref: '#/components/schemas/Transaccion' }
+                  factura: { $ref: '#/components/schemas/Factura' }
+                  comprobante:
+                    type: string
+                    description: El comprobante que emite el proveedor. Mostrarlo en el recibo.
+                    example: PAG-040629113
+                  fecha_pago: { type: string, format: date-time }
+        '400':
+          description: Datos inválidos, o la cuenta no es en ARS.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 'Los servicios se pagan desde una cuenta en pesos.' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: La cuenta, la empresa o la factura no existen.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: La factura ya estaba pagada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 'La factura ya estaba pagada.' }
+        '422':
+          description: Saldo insuficiente. No se contactó al proveedor.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 'Saldo insuficiente para pagar la factura.' }
+        '502': { $ref: '#/components/responses/ProveedorRechazo' }
+        '503': { $ref: '#/components/responses/ProveedorNoDisponible' }
+
+  # ────────────────────────────── Recargas ──────────────────────────────
+  /api/recargas/operadoras:
+    get:
+      x-pendiente: true
+      tags: [Recargas]
+      summary: Listar operadoras con sus montos
+      description: Proxy de banco-proveedores. Los montos se ofrecen como opciones fijas, no como campo libre.
+      responses:
+        '200':
+          description: Operadoras disponibles.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Operadora' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '503': { $ref: '#/components/responses/ProveedorNoDisponible' }
+
+  /api/recargas:
+    post:
+      x-pendiente: true
+      tags: [Recargas]
+      summary: Recargar un celular
+      description: |
+        Mismo orden que el pago de servicios: bloquear cuenta y verificar saldo,
+        pedir la recarga al proveedor con `Idempotency-Key`, y **sólo si
+        confirmó** debitar con `movimientos.debitar()` (canal `recarga_celular`).
+        Si el proveedor rechaza o no responde, rollback y no se debita nada.
+
+        El `monto` tiene que estar en `montos_disponibles` de la operadora; el
+        banco lo valida antes de contactar al proveedor.
+
+        Sólo desde cuentas en **ARS**.
+
+        Para probar el rechazo: los números terminados en `0000` los rechaza la
+        operadora a propósito, y el banco responde `502`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cuenta_id, operadora_id, numero, monto]
+              properties:
+                cuenta_id: { type: string, format: uuid }
+                operadora_id: { type: string, example: movistar }
+                numero:
+                  type: string
+                  pattern: '^\d{10}$'
+                  description: 10 dígitos, sin 0 ni 15.
+                  example: '3514123456'
+                monto: { $ref: '#/components/schemas/Monto' }
+            example:
+              cuenta_id: 4b1c8e2a-0000-4000-8000-000000000001
+              operadora_id: movistar
+              numero: '3514123456'
+              monto: 2000
+      responses:
+        '201':
+          description: Recarga acreditada y cuenta debitada.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaccion: { $ref: '#/components/schemas/Transaccion' }
+                  recarga:
+                    type: object
+                    properties:
+                      id: { type: string, example: rec-040629200 }
+                      operadora: { type: string, example: Movistar }
+                      numero: { type: string, example: '3514123456' }
+                      monto: { $ref: '#/components/schemas/Monto' }
+                      estado: { type: string, enum: [acreditada], example: acreditada }
+                      fecha: { type: string, format: date-time }
+        '400':
+          description: Número mal formado, monto no aceptado por la operadora, o cuenta no ARS.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 'Tuenti no acepta ese monto. Disponibles: 200, 500, 1000.' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404':
+          description: La cuenta o la operadora no existen.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: Saldo insuficiente. No se contactó al proveedor.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 'Saldo insuficiente para la recarga.' }
+        '502': { $ref: '#/components/responses/ProveedorRechazo' }
+        '503': { $ref: '#/components/responses/ProveedorNoDisponible' }
 
   # ───────────────────────────── Catálogos ─────────────────────────────
   /api/catalogos/cotizacion:

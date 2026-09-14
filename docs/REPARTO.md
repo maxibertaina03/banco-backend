@@ -113,8 +113,34 @@ curl -H "x-api-key: orbital-proveedores-2026" http://localhost:4000/empresas
 ```
 
 Trae su propia colección de Postman, CI y README. Lo que queda para Gonza es
-**consumirlo desde el banco**: un cliente HTTP en el backend con timeout y
-manejo de caída, más las pantallas del portal para pagar servicios y recargar.
+**consumirlo desde el banco**, implementando **exactamente** las 5 rutas de
+Servicios y Recargas que ya están cerradas en
+[openapi-banco-orbital.yaml](openapi-banco-orbital.yaml) (marcadas
+`x-pendiente: true`). Las pantallas las hace Maxi contra ese contrato, en
+paralelo, así que **el contrato no se cambia sin acordarlo antes**.
+
+| Ruta del banco | Qué hace |
+|---|---|
+| `GET /api/servicios/empresas` | Catálogo (proxy) |
+| `GET /api/servicios/empresas/{empresaId}/deuda` | Facturas, con `monto` |
+| `POST /api/servicios/pagos` | Paga una factura; el monto sale de la factura, no del cliente |
+| `GET /api/recargas/operadoras` | Operadoras y montos (proxy) |
+| `POST /api/recargas` | Recarga un celular |
+
+Criterio de cierre, todo en el mismo PR:
+
+- Las 5 rutas con los mismos bodies, respuestas y códigos del contrato.
+- Canales `pago_servicio` y `recarga_celular` con su migración (patrón
+  `NOT EXISTS`, ampliando `chk_canal_valido`) y sus categorías en
+  `reportes-service.js`.
+- Débito con `movimientos.debitar()` **sólo después** de que el proveedor
+  confirma; si falla o no responde, rollback y no se debita nada (`502`/`503`).
+- Cliente HTTP con timeout, `PROVEEDORES_URL` y `PROVEEDORES_API_KEY` en
+  `.env.example`, reenviando el `Idempotency-Key` al proveedor.
+- Tests con el cliente inyectado (nada de `vi.mock`): pago ok, saldo
+  insuficiente, proveedor rechaza, proveedor caído, cuenta USD.
+- **Borrar `x-pendiente: true`** de cada operación implementada. El test de
+  contrato falla si una ruta ya existe y conserva la marca.
 
 Tres cosas del mock que conviene saber antes de integrar:
 
@@ -142,7 +168,10 @@ probar el manejo de error sin apagar el servicio.
 **Importante:** el proveedor **no mueve plata**. El débito de la cuenta lo hace el banco;
 el proveedor sólo confirma que cobró.
 
-### 4. Frontend de las fases 3 a 5 — *puede arrancar ya, con mocks*
+### 4. Frontend de las fases 3 a 5 — ➡️ **pasa a Maxi** (14/9)
+
+> Decidido el 14/9: el grueso del frontend, incluidas las pantallas de servicios
+> y recargas, lo hace Maxi. Esta sección queda como guía para quien lo construya.
 
 Acá está el grueso del trabajo. El contrato de la API tiene 24 endpoints aprobados, así
 que se puede construir toda la pantalla antes de que exista el backend.
