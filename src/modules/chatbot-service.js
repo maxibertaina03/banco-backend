@@ -67,7 +67,7 @@ async function armarContextoAutorizado(pool, personaId) {
       alias: cuenta.alias,
       numeroCuenta: cuenta.numero_cuenta,
       saldo: Number(cuenta.saldo || 0),
-      currency: account.moneda,
+      currency: cuenta.moneda,
     })),
   };
 }
