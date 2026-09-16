@@ -73,17 +73,30 @@ async function armarContextoAutorizado(pool, personaId) {
 }
 
 function formatearRespuestaDeSaldo(contexto) {
-  const saldoTotal = contexto.cuentas.reduce((suma, cuenta) => suma + cuenta.saldo, 0);
-  const saldoFormateado = new Intl.NumberFormat('es-AR', {
-    style: 'currency',
-    currency: 'ARS',
-  }).format(saldoTotal);
-
-  if (contexto.cuentas.length === 1) {
-    return `El saldo de tu cuenta es ${saldoFormateado}.`;
+  if (contexto.cuentas.length === 0) {
+    return 'No encontré cuentas activas asociadas a tu perfil.';
   }
 
-  return `El saldo total de tus cuentas activas es ${saldoFormateado}.`;
+  const NOMBRES_MONEDA = { ARS: 'pesos', USD: 'dólares' };
+  const formatearMonto = (monto, moneda) =>
+    new Intl.NumberFormat('es-AR', { style: 'currency', currency: moneda || 'ARS' }).format(monto);
+
+  if (contexto.cuentas.length === 1) {
+    const [cuenta] = contexto.cuentas;
+    return `El saldo de tu cuenta es ${formatearMonto(cuenta.saldo, cuenta.currency)}.`;
+  }
+
+  const totalesPorMoneda = contexto.cuentas.reduce((totales, cuenta) => {
+    const moneda = cuenta.currency || 'ARS';
+    totales[moneda] = (totales[moneda] || 0) + cuenta.saldo;
+    return totales;
+  }, {});
+
+  const detalle = Object.entries(totalesPorMoneda)
+    .map(([moneda, monto]) => `${formatearMonto(monto, moneda)} en ${NOMBRES_MONEDA[moneda] || moneda}`)
+    .join(' y ');
+
+  return `El saldo total de tus cuentas activas es ${detalle}.`;
 }
 
 function crearServicioChatbot({
