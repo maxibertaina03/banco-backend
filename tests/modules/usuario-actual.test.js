@@ -16,11 +16,55 @@ import { join } from 'node:path';
 
 const raiz = join(import.meta.dirname, '..', '..', 'src');
 
+/** El código sin comentarios: un `req.algo` mencionado en un comentario no es una lectura. */
+function codigoDe(archivo) {
+  return readFileSync(archivo, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+}
+
 function archivosJs(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? archivosJs(join(dir, e.name)) : e.name.endsWith('.js') ? [join(dir, e.name)] : []
   );
 }
+
+// Propiedades que pone Express, pino-http o el runtime, no nuestro código.
+const DEL_FRAMEWORK = new Set([
+  'app', 'baseUrl', 'body', 'cookies', 'headers', 'hostname', 'id', 'ip', 'ips', 'log',
+  'method', 'originalUrl', 'params', 'path', 'protocol', 'query', 'res', 'route',
+  'secure', 'signedCookies', 'socket', 'subdomains', 'url', 'get', 'header', 'is', 'accepts',
+]);
+
+describe('Nadie lee una propiedad del request que no exista', () => {
+  // El bug de `req.currentUser` y el de `req.clerkUserId` en el chatbot son el
+  // mismo: leer del request algo que ningún middleware carga. Queda `undefined`,
+  // y según dónde se use termina en un 403 permanente o, peor, en saltarse una
+  // validación de dueño. Ninguno de los dos lo agarraban los tests de service,
+  // porque ahí el usuario se pasa a mano.
+  it('toda propiedad que se lee del request la setea alguien', () => {
+    const archivos = archivosJs(raiz);
+
+    const seteadas = new Set();
+    for (const archivo of archivos) {
+      for (const m of codigoDe(archivo).matchAll(/\breq\.(\w+)\s*=[^=]/g)) {
+        seteadas.add(m[1]);
+      }
+    }
+
+    const errores = [];
+    for (const archivo of archivos) {
+      for (const m of codigoDe(archivo).matchAll(/\breq\.(\w+)\b/g)) {
+        const propiedad = m[1];
+        if (!seteadas.has(propiedad) && !DEL_FRAMEWORK.has(propiedad)) {
+          errores.push(`${archivo.replace(raiz, 'src')}: req.${propiedad}`);
+        }
+      }
+    }
+
+    expect([...new Set(errores)]).toEqual([]);
+  });
+});
 
 describe('El usuario autenticado llega a los services', () => {
   const middleware = readFileSync(join(raiz, 'middlewares/require-active-user.js'), 'utf8');
@@ -33,7 +77,7 @@ describe('El usuario autenticado llega a los services', () => {
   it('ningún archivo lee el usuario de otra propiedad del request', () => {
     const errores = [];
     for (const archivo of archivosJs(raiz)) {
-      const texto = readFileSync(archivo, 'utf8');
+      const texto = codigoDe(archivo);
       for (const m of texto.matchAll(/usuarioActual:\s*req\.(\w+)/g)) {
         if (m[1] !== propiedad) errores.push(`${archivo.replace(raiz, 'src')}: req.${m[1]}`);
       }

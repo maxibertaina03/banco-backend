@@ -4,7 +4,8 @@ const HttpError = require('../utils/http-error');
 
 /**
  * Middleware que verifica el token JWT de Clerk y obtiene el usuario autenticado.
- * Adjunta el usuario de Clerk a req.auth y los datos del usuario de BD a req.user
+ * Adjunta el usuario de Clerk a req.auth. Los datos de la base los carga
+ * después `require-active-user` en req.usuarioActual.
  */
 async function clerkAuth(req, res, next) {
   const token = extractToken(req);

@@ -1,6 +1,5 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const pool = require('../db/pool');
 const { z } = require('zod');
 const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
@@ -32,16 +31,14 @@ router.post(
   chatbotLimiter,
   validate(messageSchema),
   asyncHandler(async (req, res) => {
-    const result = await pool.query(
-      'SELECT id, persona_id, activo FROM usuarios WHERE clerk_id = $1',
-      [req.clerkUserId]
-    );
-
-    if (result.rowCount === 0 || !result.rows[0].activo) {
+    // `require-active-user` ya resolvió el usuario y verificó que esté activo:
+    // volver a buscarlo por `req.clerkUserId` no sólo repetía la consulta, esa
+    // propiedad no la setea ningún middleware y el endpoint respondía 403 siempre.
+    if (!req.usuarioActual?.persona_id) {
       throw new HttpError(403, 'No existe un perfil bancario activo para este usuario.');
     }
 
-    const reply = await service.enviarMensaje({ ...req.body, usuarioActual: result.rows[0] });
+    const reply = await service.enviarMensaje({ ...req.body, usuarioActual: req.usuarioActual });
     res.json({ reply });
   })
 );
