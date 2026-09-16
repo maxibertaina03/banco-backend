@@ -9,6 +9,8 @@ const env = {
   clerkWebhookSigningSecret: process.env.CLERK_WEBHOOK_SIGNING_SECRET,
   geminiApiKey: process.env.GEMINI_API_KEY,
   geminiModel: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+  proveedoresUrl: process.env.PROVEEDORES_URL || 'http://localhost:4000',
+  proveedoresApiKey: process.env.PROVEEDORES_API_KEY,
   corsOrigins: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim()) : '*',
 };
 

@@ -66,14 +66,6 @@ info:
     **Para código nuevo, usar las de este documento.** Las heredadas se van a ir
     retirando a medida que el portal migre.
 
-    ## Rutas pendientes de implementar
-
-    Las operaciones marcadas con `x-pendiente: true` ya tienen el contrato
-    **cerrado** pero todavía no existen en el backend. El frontend puede
-    construir contra ellas con mocks desde hoy. Quien las implementa respeta el
-    contrato tal cual y, al terminar, **borra la marca `x-pendiente`**: a partir
-    de ese momento el test de contrato exige que la ruta exista.
-
     ## Idempotencia
 
     Los endpoints marcados con `Idempotency-Key` aceptan un UUID v4 por header. Si se
@@ -111,10 +103,10 @@ tags:
     description: NUEVO en v1 — Plazos fijos.
   - name: Servicios
     description: |
-      PENDIENTE DE IMPLEMENTAR — Pago de facturas de servicios (luz, gas, agua,
-      internet). El banco consume banco-proveedores y debita la cuenta.
+      Pago de facturas de servicios (luz, gas, agua, internet). El banco
+      consume banco-proveedores y debita la cuenta.
   - name: Recargas
-    description: PENDIENTE DE IMPLEMENTAR — Recarga de celulares prepagos.
+    description: Recarga de celulares prepagos.
   - name: Catálogos
     description: Tipos de cuenta, tipos de transacción y cotizaciones.
 
@@ -1619,7 +1611,6 @@ paths:
   # ───────────────────────────── Servicios ─────────────────────────────
   /api/servicios/empresas:
     get:
-      x-pendiente: true
       tags: [Servicios]
       summary: Listar empresas de servicios
       description: Catálogo para el selector de "Pagar servicios". Proxy de banco-proveedores.
@@ -1642,7 +1633,6 @@ paths:
 
   /api/servicios/empresas/{empresaId}/deuda:
     get:
-      x-pendiente: true
       tags: [Servicios]
       summary: Consultar la deuda de un número de cliente
       description: |
@@ -1694,7 +1684,6 @@ paths:
 
   /api/servicios/pagos:
     post:
-      x-pendiente: true
       tags: [Servicios]
       summary: Pagar una factura
       description: |
@@ -1780,7 +1769,6 @@ paths:
   # ────────────────────────────── Recargas ──────────────────────────────
   /api/recargas/operadoras:
     get:
-      x-pendiente: true
       tags: [Recargas]
       summary: Listar operadoras con sus montos
       description: Proxy de banco-proveedores. Los montos se ofrecen como opciones fijas, no como campo libre.
@@ -1797,7 +1785,6 @@ paths:
 
   /api/recargas:
     post:
-      x-pendiente: true
       tags: [Recargas]
       summary: Recargar un celular
       description: |

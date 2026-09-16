@@ -8,6 +8,8 @@ const tarjetasRouter = require('../modules/tarjetas-router');
 const prestamosRouter = require('../modules/prestamos-router');
 const plazosFijosRouter = require('../modules/plazos-fijos-router');
 const chatbotRouter = require('../modules/chatbot-router');
+const serviciosRouter = require('../modules/servicios-router');
+const recargasRouter = require('../modules/recargas-router');
 
 
 const router = express.Router();
@@ -21,6 +23,8 @@ router.use('/cuentas', createCrudRouter(entities.cuentas));
 router.use('/tipos-transaccion', createCrudRouter(entities.tipos_transaccion));
 router.use('/transacciones', transaccionesRouter);
 router.use('/chatbot', chatbotRouter);
+router.use('/servicios', serviciosRouter);
+router.use('/recargas', recargasRouter);
 
 router.use('/central-bank', centralBankRouter);
 router.use('/destinatarios', createCrudRouter(entities.destinatarios));
