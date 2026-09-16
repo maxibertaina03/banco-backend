@@ -12,9 +12,17 @@ detrás. Se encuentran cuando los dos lados están listos.
 
 ## Gonza
 
-### 1. Traer el chatbot del backend a `main` — *en curso*
+### 1. Traer el chatbot del backend a `main` — ✅ **mergeado** (16/9, PR #1)
 
-**Estado al 10/9: el merge ya está hecho, faltan 6 conflictos por resolver.**
+Gonza mergeó `main` en su rama y corrigió el saldo, que sumaba dólares como
+pesos. Al integrar el PR se corrigieron cuatro cosas: el endpoint respondía 403
+siempre (el router leía `req.clerkUserId`, que no setea ningún middleware), una
+ruta `/personas/:id/transacciones` duplicada que volvía a la versión vieja (sin
+control de dueño y con INNER JOIN), y un `src/utils/cuentas.js` que generaba
+CBUs al azar cuando los asigna el Banco Central; su test además rompía la suite
+por estar escrito con `node:test`.
+
+Lo que sigue es el registro de cómo se resolvió el merge.
 
 > ⚠️ **No borrar `crud-router.js`, `crud-service.js` ni `entities.js`.** No están
 > obsoletos: en `main` montan **nueve grupos de rutas** (personas, roles,
@@ -90,7 +98,14 @@ npm run dev                      # y probar el chat
 El tercero no se saltea: **ni los tests ni el build detectan un import roto**,
 sólo aparece al arrancar la app.
 
-### 2. El asistente, de solo lectura — *después del punto 1*
+### 2. El asistente, de solo lectura — ✅ **hecho** (16/9)
+
+Cubierto por `tests/modules/chatbot-service.test.js`: el contexto se arma sólo
+con la persona autenticada y los pedidos de datos ajenos se rechazan antes de
+consultar la base o llamar a Gemini. Falta que Gonza comparta la `GEMINI_API_KEY`
+del equipo; sin ella el asistente responde 503.
+
+Lo que sigue es el alcance original.
 
 Responde sobre saldo, movimientos, elegibilidad para un préstamo y datos del cliente
 autenticado. **No ejecuta ninguna acción**, ni siquiera bloquear una tarjeta: todo lo
