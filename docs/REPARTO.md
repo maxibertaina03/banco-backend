@@ -112,8 +112,14 @@ cd banco-proveedores && npm install && cp .env.example .env && npm run dev
 curl -H "x-api-key: orbital-proveedores-2026" http://localhost:4000/empresas
 ```
 
-Trae su propia colección de Postman, CI y README. Lo que queda para Gonza es
-**consumirlo desde el banco**, implementando **exactamente** las 5 rutas de
+Trae su propia colección de Postman, CI y README.
+
+> **Actualización 16/9: el consumo desde el banco ya está hecho** (lo tomó Maxi).
+> Las 5 rutas de Servicios y Recargas están implementadas, probadas de punta a
+> punta contra el proveedor real y sin la marca `x-pendiente`. Lo que sigue
+> describe cómo quedó.
+
+Lo que quedaba era **consumirlo desde el banco**, implementando **exactamente** las 5 rutas de
 Servicios y Recargas que ya están cerradas en
 [openapi-banco-orbital.yaml](openapi-banco-orbital.yaml) (marcadas
 `x-pendiente: true`). Las pantallas las hace Maxi contra ese contrato, en
@@ -127,7 +133,7 @@ paralelo, así que **el contrato no se cambia sin acordarlo antes**.
 | `GET /api/recargas/operadoras` | Operadoras y montos (proxy) |
 | `POST /api/recargas` | Recarga un celular |
 
-Criterio de cierre, todo en el mismo PR:
+Criterio de cierre (cumplido):
 
 - Las 5 rutas con los mismos bodies, respuestas y códigos del contrato.
 - Canales `pago_servicio` y `recarga_celular` con su migración (patrón

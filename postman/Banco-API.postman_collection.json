@@ -2686,6 +2686,240 @@
       ]
     },
     {
+      "name": "Servicios y recargas",
+      "description": "Pago de facturas y recargas contra banco-proveedores, que tiene que estar levantado en el puerto 4000. El monto del pago lo toma el banco de la factura: por eso el body no lo lleva.",
+      "item": [
+        {
+          "name": "Listar empresas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/servicios/empresas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "servicios",
+                "empresas"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar empresas por rubro",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/servicios/empresas?rubro=luz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "servicios",
+                "empresas"
+              ],
+              "query": [
+                {
+                  "key": "rubro",
+                  "value": "luz"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Consultar deuda",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/servicios/empresas/edenor/deuda?numero_cliente=123456789",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "servicios",
+                "empresas",
+                "edenor",
+                "deuda"
+              ],
+              "query": [
+                {
+                  "key": "numero_cliente",
+                  "value": "123456789"
+                }
+              ]
+            },
+            "description": "Un cliente al día devuelve 200 con la lista vacía, no un 404."
+          }
+        },
+        {
+          "name": "Consultar deuda — cliente al día",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/servicios/empresas/edenor/deuda?numero_cliente=999999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "servicios",
+                "empresas",
+                "edenor",
+                "deuda"
+              ],
+              "query": [
+                {
+                  "key": "numero_cliente",
+                  "value": "999999999"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Pagar factura",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/servicios/pagos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "servicios",
+                "pagos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_id\": \"{{cuentaId}}\",\n  \"empresa_id\": \"edenor\",\n  \"numero_cliente\": \"123456789\",\n  \"factura_id\": \"fac-edenor-202608\"\n}"
+            },
+            "description": "Debita la cuenta sólo después de que el proveedor confirma el cobro."
+          }
+        },
+        {
+          "name": "Listar operadoras",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/recargas/operadoras",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "recargas",
+                "operadoras"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Recargar celular",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/recargas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "recargas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_id\": \"{{cuentaId}}\",\n  \"operadora_id\": \"movistar\",\n  \"numero\": \"3514123456\",\n  \"monto\": 1000\n}"
+            }
+          }
+        },
+        {
+          "name": "Recargar — rechazo de la operadora",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/recargas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "recargas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_id\": \"{{cuentaId}}\",\n  \"operadora_id\": \"movistar\",\n  \"numero\": \"3514120000\",\n  \"monto\": 1000\n}"
+            },
+            "description": "Los números terminados en 0000 los rechaza la operadora a propósito: responde 502 y no debita."
+          }
+        },
+        {
+          "name": "Recargar — monto no aceptado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/recargas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "recargas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cuenta_id\": \"{{cuentaId}}\",\n  \"operadora_id\": \"tuenti\",\n  \"numero\": \"3514123456\",\n  \"monto\": 1234\n}"
+            },
+            "description": "400: el banco valida el monto contra el catálogo antes de contactar al proveedor."
+          }
+        }
+      ]
+    },
+    {
       "name": "▶ Flujo completo de demo",
       "description": "Recorrido de punta a punta, en orden. Ir guardando los ids que devuelve cada paso en las variables de la colección.",
       "item": [
