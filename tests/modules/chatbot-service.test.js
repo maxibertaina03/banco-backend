@@ -105,4 +105,55 @@ describe("chatbot-service", () => {
       message: "El asistente virtual no puede consultar tus datos en este momento.",
     });
   });
+
+  it('no le muestra al cliente el razonamiento interno del modelo', async () => {
+    // La API devuelve el pensamiento en partes con `thought: true`. Con el
+    // presupuesto de tokens agotado llegó a mandar "Wait, what is 006?" como
+    // texto: eso no puede terminar en la pantalla de nadie.
+    const geminiApi = {
+      post: async () => ({
+        data: {
+          candidates: [{
+            finishReason: 'STOP',
+            content: { parts: [{ thought: true, text: 'Wait, what is 006?' }, { text: 'Tu CBU es 0060001948123456001608.' }] },
+          }],
+        },
+      }),
+    };
+    const servicio = crearServicioChatbot({ pool: buildMocks().pool, geminiApi, apiKey: 'test-key' });
+
+    const respuesta = await servicio.enviarMensaje({ message: '¿Cuál es mi CBU?', usuarioActual: { persona_id: 'p1' } });
+
+    expect(respuesta).toBe('Tu CBU es 0060001948123456001608.');
+    expect(respuesta).not.toContain('Wait');
+  });
+
+  it('descarta una respuesta cortada por límite de tokens', async () => {
+    // Media frase es peor que nada: el cliente se queda sin el dato y sin saberlo.
+    const geminiApi = {
+      post: async () => ({
+        data: { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: 'El CBU de tu cuenta en pesos es' }] } }] },
+      }),
+    };
+    const servicio = crearServicioChatbot({ pool: buildMocks().pool, geminiApi, apiKey: 'test-key' });
+
+    const respuesta = await servicio.enviarMensaje({ message: '¿Cuál es mi CBU?', usuarioActual: { persona_id: 'p1' } });
+
+    expect(respuesta).toMatch(/no pude completar/i);
+  });
+
+  it('apaga el razonamiento del modelo al pedirle una respuesta', async () => {
+    let cuerpoEnviado = null;
+    const geminiApi = {
+      post: async (_url, cuerpo) => {
+        cuerpoEnviado = cuerpo;
+        return { data: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'Listo.' }] } }] } };
+      },
+    };
+    const servicio = crearServicioChatbot({ pool: buildMocks().pool, geminiApi, apiKey: 'test-key' });
+
+    await servicio.enviarMensaje({ message: '¿Puedo pedir un préstamo?', usuarioActual: { persona_id: 'p1' } });
+
+    expect(cuerpoEnviado.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0 });
+  });
 });

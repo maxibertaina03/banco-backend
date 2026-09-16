@@ -146,16 +146,40 @@ function crearServicioChatbot({
         {
           systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
           contents: [...normalizarHistorial(history), { role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 400 },
+          // `thinkingBudget: 0` apaga el razonamiento interno del modelo. Sin
+          // esto, gemini-3.6-flash gastaba 385 de los 400 tokens pensando y la
+          // respuesta salía cortada a la mitad ("El CBU de tu cuenta es" y nada
+          // más), porque el presupuesto de pensamiento sale del mismo límite.
+          // Para un asistente de solo lectura que responde con datos ya
+          // resueltos, pensar no aporta: sólo tarda más y corta la respuesta.
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 400,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
         },
         { params: { key: apiKey }, timeout: GEMINI_TIMEOUT_MS }
       );
 
-      const reply = response.data?.candidates?.[0]?.content?.parts
-        ?.map((part) => part.text)
+      const candidato = response.data?.candidates?.[0];
+
+      // Las partes marcadas como `thought` son el razonamiento interno del
+      // modelo, no su respuesta. Se descartan: cuando el presupuesto de tokens
+      // se agota, la API llegó a devolver como texto cosas como
+      // "Wait, what is 006?", y eso no puede terminar en la pantalla del cliente.
+      const reply = (candidato?.content?.parts ?? [])
+        .filter((part) => !part.thought)
+        .map((part) => part.text)
         .filter(Boolean)
         .join('\n')
         .trim();
+
+      // Una respuesta cortada por límite de tokens es peor que ninguna: deja al
+      // cliente con media frase y sin el dato.
+      if (candidato?.finishReason === 'MAX_TOKENS') {
+        logger.warn({ personaId: usuarioActual.persona_id }, 'chatbot truncated reply discarded');
+        return 'No pude completar la respuesta. ¿Podés preguntarlo de nuevo, más puntual?';
+      }
 
       if (!reply) throw new Error('Gemini devolvió una respuesta vacía.');
       return SENSITIVE_RESPONSE.test(reply) ? SAFE_SENSITIVE_RESPONSE : reply.slice(0, 4000);
