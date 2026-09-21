@@ -257,9 +257,24 @@ function createAuthService({ pool = realPool, clerkApi = realClerkApi } = {}) {
     return result.rows[0];
   }
 
+  /**
+   * Completa el perfil la primera vez, con el DNI incluido.
+   *
+   * Una sola vez: el DNI es la clave con la que el Banco Central identifica a
+   * la persona y va dentro del CBU. Los demás datos se cambian con la edición
+   * parcial (`actualizarPerfilDeUsuario`), que no acepta el DNI.
+   */
   async function completarPerfilDeUsuario(clerkId, payload) {
     const result = await q.completarPerfil(pool, payload, clerkId);
     if (result.rowCount === 0) {
+      // O no existe, o ya estaba completo: para el cliente son dos cosas distintas.
+      const actual = await q.seleccionarPerfilDeUsuario(pool, clerkId);
+      if (actual.rows[0]?.perfil_completo) {
+        throw new HttpError(
+          409,
+          'Tu perfil ya está completo. Tus datos se cambian desde "Mis datos"; el DNI no se puede modificar.'
+        );
+      }
       throw new HttpError(404, 'Usuario no encontrado o inactivo.');
     }
     return result.rows[0];

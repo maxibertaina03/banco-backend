@@ -297,6 +297,11 @@ function completarPerfil(executor, payload, clerkId) {
        WHERE u.persona_id = p.id
          AND u.clerk_id = $7
          AND u.activo = true
+         -- Sólo la primera vez. Sin esto, llamando al endpoint de nuevo se podía
+         -- cambiar el DNI con el perfil ya completo, y con él esquivar la
+         -- verificación crediticia, que consulta la Central de Deudores por DNI.
+         -- Va en el UPDATE y no en un chequeo previo para que no haya carrera.
+         AND p.perfil_completo = false
        RETURNING
          u.id,
          u.persona_id,

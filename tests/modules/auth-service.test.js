@@ -387,3 +387,56 @@ describe("desactivarUsuarioDeClerkPorWebhook", () => {
     expect(sql).toContain("SET activo = false");
   });
 });
+
+// ── completarPerfilDeUsuario ─────────────────────────────────────────────────
+
+describe("completarPerfilDeUsuario — el DNI se carga una sola vez", () => {
+  const datos = {
+    nombre: "Ana", apellido: "Paz", dni: "30111222", email: "ana@example.com",
+    telefono: "3511234567", fecha_nacimiento: "1990-01-01",
+  };
+
+  it("completa el perfil la primera vez", async () => {
+    const { pool } = buildMocks();
+    pool.query.mockResolvedValueOnce({ rows: [{ id: "u1", dni: "30111222", perfil_completo: true }], rowCount: 1 });
+    const service = buildService({ pool });
+
+    const perfil = await service.completarPerfilDeUsuario("clerk_1", datos);
+
+    expect(perfil.dni).toBe("30111222");
+  });
+
+  it("el UPDATE sólo aplica sobre un perfil todavía incompleto", async () => {
+    // La condición va en el mismo UPDATE: un chequeo previo dejaría una carrera.
+    const { pool } = buildMocks();
+    pool.query.mockResolvedValueOnce({ rows: [{ id: "u1" }], rowCount: 1 });
+    const service = buildService({ pool });
+
+    await service.completarPerfilDeUsuario("clerk_1", datos);
+
+    expect(pool.query.mock.calls[0][0]).toMatch(/perfil_completo\s*=\s*false/);
+  });
+
+  it("con el perfil ya completo, 409 y no cambia el DNI", async () => {
+    // Sin esto, alguien bloqueado por deudas se cambiaba el DNI por uno limpio
+    // y la verificación crediticia, que consulta por DNI, lo dejaba pasar.
+    const { pool } = buildMocks();
+    pool.query
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // el UPDATE no toca nada
+      .mockResolvedValueOnce({ rows: [{ id: "u1", perfil_completo: true }], rowCount: 1 });
+    const service = buildService({ pool });
+
+    await expect(service.completarPerfilDeUsuario("clerk_1", { ...datos, dni: "99999999" }))
+      .rejects.toMatchObject({ status: 409 });
+  });
+
+  it("si el usuario no existe, sigue siendo 404", async () => {
+    const { pool } = buildMocks();
+    pool.query
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const service = buildService({ pool });
+
+    await expect(service.completarPerfilDeUsuario("clerk_x", datos)).rejects.toMatchObject({ status: 404 });
+  });
+});
