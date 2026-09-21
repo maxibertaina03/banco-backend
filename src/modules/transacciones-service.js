@@ -34,6 +34,32 @@ function createTransaccionesService({
   // keystroke. La cache vive en el closure de esta instancia, así cada test
   // puede tener su propia cache aislada.
   const resolverCache = createTTLCache(resolverCacheMaxEntries, resolverCacheTtlMs);
+  // Los nombres de los bancos casi no cambian: una hora alcanza.
+  const cacheBancos = createTTLCache(100, 60 * 60_000);
+
+  /**
+   * Nombre del banco dueño de un CBU. Los tres primeros dígitos del CBU son el
+   * código del banco en el Central (006 somos nosotros, 008 Tree Bank...).
+   * Si el Central no responde, devuelve null: no es motivo para romper nada.
+   */
+  async function nombreDeBancoDeCbu(cbu) {
+    const codigo = Number(String(cbu || '').slice(0, 3));
+    if (!Number.isInteger(codigo) || codigo <= 0) return null;
+
+    // La cache devuelve null cuando no tiene la clave: por eso sólo se guardan
+    // nombres encontrados, y un null siempre vuelve a preguntar.
+    const enCache = cacheBancos.get(codigo);
+    if (enCache) return enCache;
+
+    try {
+      const banco = await centralBankService.getBankByCode(codigo);
+      const nombre = banco?.name || banco?.nombre || null;
+      if (nombre) cacheBancos.set(codigo, nombre);
+      return nombre;
+    } catch {
+      return null;
+    }
+  }
 
   // ── Helpers internos (orquestan queries + reglas de negocio) ───────────────
 
@@ -265,6 +291,11 @@ function createTransaccionesService({
       banco: findStringInPayload(centralData, ['bankName', 'bank_name', 'banco', 'nombreBanco']),
       raw: centralData,
     };
+    // El Central devuelve sólo el código del banco: se busca el nombre para que
+    // el formulario muestre a qué banco va la plata antes de confirmar.
+    if (!response.banco) {
+      response.banco = await nombreDeBancoDeCbu(response.cbu);
+    }
 
     resolverCache.set(cacheKey, response);
     return response;
@@ -275,14 +306,18 @@ function createTransaccionesService({
     cbuDestino,
     importe,
     saldoOrigen,
+    descripcion = null,
     usuarioActual,
     ipAddress,
   }) {
-    return enTransaccionDeBd(async (client) => {
+    let monedaOrigen = 'ARS';
+
+    const resultado = await enTransaccionDeBd(async (client) => {
       const origin = await obtenerCuentaLocalPorCbu(client, cbuOrigen);
       if (!origin) {
         throw new HttpError(404, 'CBU origen no encontrado en el sistema.');
       }
+      monedaOrigen = origin.moneda || 'ARS';
 
       const idTipoTransferencia = await obtenerIdTipoTransferencia(client);
 
@@ -293,11 +328,19 @@ function createTransaccionesService({
         origin,
         destination: { cbu: cbuDestino },
         amount: importe,
-        description: 'Transferencia realizada con contrato Banco Central',
+        // La del usuario, que antes se descartaba por un texto fijo. Queda en
+        // nuestro extracto y en el comprobante; al otro banco no le llega,
+        // porque el POST /transactions del Central no tiene ese campo.
+        description: descripcion || null,
         requestedSourceBalance: saldoOrigen,
         idTipoTransferencia,
       });
     });
+
+    // Fuera de la transacción de BD: esperar al Central por un nombre no debe
+    // mantenerla abierta.
+    const bancoDestino = await nombreDeBancoDeCbu(resultado.effectiveDestinationCbu);
+    return { ...resultado, monedaOrigen, bancoDestino };
   }
 
   async function operate({

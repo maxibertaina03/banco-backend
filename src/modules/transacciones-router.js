@@ -38,6 +38,7 @@ const transferenciaPorContratoSchema = z.object({
   cbuDestino: z.string().trim().length(22),
   importe: z.coerce.number().positive(),
   saldoOrigen: z.coerce.number().nonnegative(),
+  descripcion: z.string().trim().max(140).nullable().optional(),
 });
 
 const resolverDestinatarioSchema = z
@@ -122,13 +123,14 @@ router.post(
   idempotency,
   validate(transferenciaPorContratoSchema),
   asyncHandler(async (req, res) => {
-    const { cbuOrigen, cbuDestino, importe, saldoOrigen } = req.body;
+    const { cbuOrigen, cbuDestino, importe, saldoOrigen, descripcion } = req.body;
 
     const result = await service.crearTransferenciaPorContrato({
       cbuOrigen,
       cbuDestino,
       importe,
       saldoOrigen,
+      descripcion,
       usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });
@@ -146,6 +148,11 @@ router.post(
       importe,
       nombreOrigen: result.originName,
       nombreDestino: result.destinationName,
+      // Lo que necesita el comprobante, tal como lo procesó el banco.
+      fecha: result.transaccion.created_at,
+      descripcion: result.transaccion.descripcion ?? null,
+      moneda: result.monedaOrigen,
+      bancoDestino: result.bancoDestino,
     });
   })
 );

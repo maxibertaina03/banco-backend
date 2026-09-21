@@ -613,3 +613,47 @@ describe('crearCambioDeDivisa', () => {
     expect(mocks.pool.connect).not.toHaveBeenCalled();
   });
 });
+
+// ── Nombre del banco destino (para el formulario y el comprobante) ──────────
+
+describe('resolverDestinatario — el banco sale del código del CBU', () => {
+  // El Central devuelve sólo `bankCode`; el nombre se busca aparte. Los tres
+  // primeros dígitos del CBU son ese código: 008 → Tree Bank.
+  function conBanco(getBankByCode) {
+    const mocks = buildMocks();
+    mocks.centralBankService.getBankByCode = getBankByCode;
+    mocks.centralBankService.findPersonByCbu.mockImplementation(async (cbu) => ({
+      cbu, nombre: 'Juan', apellido: 'Elver', bankCode: Number(cbu.slice(0, 3)),
+    }));
+    return { service: buildService(mocks), mocks };
+  }
+
+  it('completa el nombre del banco con el código del CBU', async () => {
+    const getBankByCode = vi.fn().mockResolvedValue({ bankCode: 8, name: 'Tree Bank' });
+    const { service } = conBanco(getBankByCode);
+
+    const r = await service.resolverDestinatario({ cbu: '0080001301234321003207' });
+
+    expect(r.banco).toBe('Tree Bank');
+    expect(getBankByCode).toHaveBeenCalledWith(8);
+  });
+
+  it('guarda el nombre: otro CBU del mismo banco no vuelve a preguntar', async () => {
+    const getBankByCode = vi.fn().mockResolvedValue({ bankCode: 8, name: 'Tree Bank' });
+    const { service } = conBanco(getBankByCode);
+
+    await service.resolverDestinatario({ cbu: '0080001301234321003207' });
+    await service.resolverDestinatario({ cbu: '0080001399999999000101' });
+
+    expect(getBankByCode).toHaveBeenCalledTimes(1);
+  });
+
+  it('si el Central no responde el nombre, sigue sin banco y no rompe', async () => {
+    const { service } = conBanco(vi.fn().mockRejectedValue(new Error('timeout')));
+
+    const r = await service.resolverDestinatario({ cbu: '0080001301234321003207' });
+
+    expect(r.banco).toBeNull();
+    expect(r.titular).toBe('Juan Elver');
+  });
+});
