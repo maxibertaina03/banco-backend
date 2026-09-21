@@ -598,8 +598,28 @@ async function sincronizarCuentas({ environment, idsCuenta, limit = DEFAULT_SYNC
   };
 }
 
-async function sincronizarTransaccionesEntrantes({ environment, minutes = 30, personaCbus } = {}) {
-  const transaccionesDelCentral = await listarTransacciones({ environment, minutes });
+/**
+ * Trae del Banco Central las transferencias que otros bancos nos mandaron y
+ * las acredita.
+ *
+ * Antes de acreditar se valida la moneda: **el Central no la valida**, así que
+ * una transferencia desde una cuenta en pesos a una caja nuestra en dólares
+ * llega con el mismo importe, y acreditarla sería regalar dólares. Esas se
+ * registran como rechazadas y no se acreditan.
+ *
+ * @param {object} [dependencias] Inyectables para los tests.
+ */
+async function sincronizarTransaccionesEntrantes(
+  { environment, minutes = 30, personaCbus } = {},
+  {
+    listar = listarTransacciones,
+    db = pool,
+    // Import diferido: monedas.js requiere este módulo, así que traerlo arriba
+    // cerraría un ciclo y lo dejaría a medio cargar.
+    validarEntrante = (...args) => require('./monedas').validarEntrante(...args),
+  } = {}
+) {
+  const transaccionesDelCentral = await listar({ environment, minutes });
 
   if (!Array.isArray(transaccionesDelCentral) || transaccionesDelCentral.length === 0) {
     return { processed: 0, synced: 0, already_recorded: 0, errors: 0, results: [] };
@@ -607,8 +627,8 @@ async function sincronizarTransaccionesEntrantes({ environment, minutes = 30, pe
 
   const cbuResult =
     Array.isArray(personaCbus) && personaCbus.length > 0
-      ? await q.seleccionarCuentasActivasPorCbus(pool, personaCbus)
-      : await q.seleccionarCuentasActivasConCbu(pool);
+      ? await q.seleccionarCuentasActivasPorCbus(db, personaCbus)
+      : await q.seleccionarCuentasActivasConCbu(db);
 
   const ourCbus = new Map(cbuResult.rows.map((row) => [row.cbu, row]));
 
@@ -624,7 +644,7 @@ async function sincronizarTransaccionesEntrantes({ environment, minutes = 30, pe
 
   // Single batch query instead of N individual queries
   const candidateIds = candidates.map((tx) => tx._txId);
-  const existingResult = await q.selectExistingIncomingTxIds(pool, candidateIds);
+  const existingResult = await q.selectExistingIncomingTxIds(db, candidateIds);
   const existingIds = new Set(existingResult.rows.map((r) => r.central_transaction_id));
 
   const results = [];
@@ -653,7 +673,16 @@ async function sincronizarTransaccionesEntrantes({ environment, minutes = 30, pe
       .filter(Boolean)
       .join(' ') || null;
 
-    const client = await pool.connect();
+    let validacion;
+    try {
+      validacion = await validarEntrante(tx.cbuOrigen, cuentaDestino.moneda, environment);
+    } catch (error) {
+      // Sin poder validar no se acredita: queda para la próxima sincronización.
+      results.push({ id: txId, status: 'error', error: `No se pudo validar la moneda: ${error.message}` });
+      continue;
+    }
+
+    const client = await db.connect();
 
     try {
       await client.query('BEGIN');
@@ -662,6 +691,23 @@ async function sincronizarTransaccionesEntrantes({ environment, minutes = 30, pe
 
       if (typeResult.rowCount === 0) {
         throw new HttpError(500, 'No se encontró el tipo de transacción transferencia.');
+      }
+
+      if (!validacion.acreditable) {
+        // Se registra sin tocar el saldo, con el motivo a la vista del titular.
+        await q.insertarTransaccionEntrante(client, {
+          typeId: typeResult.rows[0].id,
+          idCuentaDestino: cuentaDestino.id,
+          importe,
+          txId,
+          cbuOrigen: tx.cbuOrigen,
+          cbuDestino,
+          senderName: `No acreditada: ${validacion.motivo}`,
+          estado: 'rechazada',
+        });
+        await client.query('COMMIT');
+        results.push({ id: txId, status: 'rechazada', importe, cbuDestino, motivo: validacion.motivo });
+        continue;
       }
 
       await q.acreditarEnCuenta(client, importe, cuentaDestino.id);
@@ -694,6 +740,7 @@ async function sincronizarTransaccionesEntrantes({ environment, minutes = 30, pe
     processed: results.length,
     synced: results.filter((r) => r.status === 'synced').length,
     already_recorded: results.filter((r) => r.status === 'already_recorded').length,
+    rechazadas: results.filter((r) => r.status === 'rechazada').length,
     errors: results.filter((r) => r.status === 'error').length,
     results,
   };

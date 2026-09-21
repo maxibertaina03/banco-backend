@@ -231,14 +231,14 @@ function resultadoSincronizacionCuenta(executor, { cbu, alias, idCuenta }) {
 /** Cuentas activas que matcheen alguno de los CBUs dados. */
 function seleccionarCuentasActivasPorCbus(executor, cbus) {
   return executor.query(
-    'SELECT id, cbu FROM cuentas WHERE cbu = ANY($1::text[]) AND activa = TRUE',
+    'SELECT id, cbu, moneda FROM cuentas WHERE cbu = ANY($1::text[]) AND activa = TRUE',
     [cbus]
   );
 }
 
 /** Todas las cuentas activas con CBU. */
 function seleccionarCuentasActivasConCbu(executor) {
-  return executor.query('SELECT id, cbu FROM cuentas WHERE cbu IS NOT NULL AND activa = TRUE');
+  return executor.query('SELECT id, cbu, moneda FROM cuentas WHERE cbu IS NOT NULL AND activa = TRUE');
 }
 
 /** IDs de transacciones entrantes ya registradas (para deduplicar). */
@@ -261,8 +261,14 @@ function acreditarEnCuenta(executor, amount, idCuenta) {
   return executor.query('UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2', [amount, idCuenta]);
 }
 
-/** Registra una transferencia entrante interbancaria acreditada. */
-function insertarTransaccionEntrante(executor, { typeId, idCuentaDestino, importe, txId, cbuOrigen, cbuDestino, senderName }) {
+/**
+ * Registra una transferencia entrante interbancaria.
+ *
+ * `estado` es 'rechazada' cuando no se acredita (monedas distintas): igual se
+ * registra, para que el titular la vea y para que la sincronización no la
+ * vuelva a procesar, porque la deduplicación mira el id del Central.
+ */
+function insertarTransaccionEntrante(executor, { typeId, idCuentaDestino, importe, txId, cbuOrigen, cbuDestino, senderName, estado = 'completada' }) {
   return executor.query(
     `INSERT INTO transacciones (
            tipo_transaccion_id,
@@ -274,8 +280,8 @@ function insertarTransaccionEntrante(executor, { typeId, idCuentaDestino, import
            cbu_origen,
            cbu_destino,
            descripcion
-         ) VALUES ($1, $2, $3, 'completada', $4, 'interbancaria_entrante', $5, $6, $7)`,
-    [typeId, idCuentaDestino, importe, txId, cbuOrigen, cbuDestino, senderName]
+         ) VALUES ($1, $2, $3, $8, $4, 'interbancaria_entrante', $5, $6, $7)`,
+    [typeId, idCuentaDestino, importe, txId, cbuOrigen, cbuDestino, senderName, estado]
   );
 }
 
