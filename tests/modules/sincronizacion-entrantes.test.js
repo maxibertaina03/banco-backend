@@ -16,7 +16,7 @@ function transferencia(id, cbuOrigen, importe = 100) {
   return { _id: id, estado: 'aprobada', cbuOrigen, cbuDestino: CUENTA_USD.cbu, importe };
 }
 
-function armar({ transferencias, monedaDeOrigen = {}, yaRegistradas = [], validacion = null }) {
+function armar({ transferencias, monedaDeOrigen = {}, yaRegistradas = [], validacion = null, insercionDuplicada = false }) {
   const escrituras = [];
 
   const query = vi.fn(async (sql, params) => {
@@ -31,6 +31,10 @@ function armar({ transferencias, monedaDeOrigen = {}, yaRegistradas = [], valida
       return { rows: [], rowCount: 1 };
     }
     if (sql.includes('INSERT INTO transacciones')) {
+      if (insercionDuplicada) {
+        // Lo que hace Postgres cuando otra sincronización ya la registró.
+        throw Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' });
+      }
       escrituras.push(['registra', params[3], params[7]]); // id del Central, estado
       return { rows: [], rowCount: 1 };
     }
@@ -109,6 +113,23 @@ describe('sincronización de entrantes', () => {
     expect(r.errors).toBe(1);
     // Ni acredita ni registra: al no quedar registrada, se reintenta la próxima vez.
     expect(escrituras).toEqual([]);
+  });
+
+  it('si otra sincronización la registró al mismo tiempo, no la acredita de nuevo', async () => {
+    // Sin el índice único, tres sincronizaciones en paralelo acreditaron la
+    // misma transferencia tres veces. Con él, la inserción choca y se deshace.
+    const { ejecutar, escrituras } = armar({
+      transferencias: [transferencia('tx-concurrente', 'origen-usd')],
+      monedaDeOrigen: { 'origen-usd': 'USD' },
+      insercionDuplicada: true,
+    });
+
+    const r = await ejecutar();
+
+    expect(r.already_recorded).toBe(1);
+    expect(r.errors).toBe(0);
+    // El registro va antes que el saldo: al chocar, la cuenta ni se toca.
+    expect(escrituras.find(([op]) => op === 'acredita')).toBeUndefined();
   });
 
   it('una transferencia ya registrada no se procesa de nuevo', async () => {

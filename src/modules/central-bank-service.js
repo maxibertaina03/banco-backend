@@ -710,8 +710,9 @@ async function sincronizarTransaccionesEntrantes(
         continue;
       }
 
-      await q.acreditarEnCuenta(client, importe, cuentaDestino.id);
-
+      // Primero el registro y después el saldo. El índice único sobre el id
+      // del Central hace que, si otra sincronización ya la está registrando,
+      // esta inserción falle antes de tocar la cuenta.
       await q.insertarTransaccionEntrante(client, {
         typeId: typeResult.rows[0].id,
         idCuentaDestino: cuentaDestino.id,
@@ -722,10 +723,18 @@ async function sincronizarTransaccionesEntrantes(
         senderName,
       });
 
+      await q.acreditarEnCuenta(client, importe, cuentaDestino.id);
+
       await client.query('COMMIT');
       results.push({ id: txId, status: 'synced', importe, cbuDestino, senderName });
     } catch (error) {
       await client.query('ROLLBACK');
+      // 23505: otra sincronización concurrente ya la registró (índice único
+      // uq_transacciones_entrante_central). No es un error: ya está acreditada.
+      if (error?.code === '23505') {
+        results.push({ id: txId, status: 'already_recorded' });
+        continue;
+      }
       results.push({
         id: txId,
         status: 'error',
