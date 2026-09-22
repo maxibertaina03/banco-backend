@@ -107,6 +107,8 @@ tags:
       consume banco-proveedores y debita la cuenta.
   - name: Recargas
     description: Recarga de celulares prepagos.
+  - name: Bonificaciones
+    description: Bonificaciones que el banco regala. Una sola vez por persona.
   - name: Catálogos
     description: Tipos de cuenta, tipos de transacción y cotizaciones.
 
@@ -353,7 +355,7 @@ components:
         canal:
           type: string
           nullable: true
-          enum: [local, interbancaria_saliente, interbancaria_entrante, deposito_efectivo, extraccion_efectivo, cambio_divisa, prestamo_acreditado, cuota_prestamo, plazo_fijo_constitucion, plazo_fijo_acreditacion, consumo_tarjeta, pago_servicio, recarga_celular]
+          enum: [local, interbancaria_saliente, interbancaria_entrante, deposito_efectivo, extraccion_efectivo, cambio_divisa, prestamo_acreditado, cuota_prestamo, plazo_fijo_constitucion, plazo_fijo_acreditacion, consumo_tarjeta, pago_servicio, recarga_celular, bonificacion]
           description: Por dónde pasó la operación. Lo usa el frontend para elegir el ícono y el texto.
           example: local
         central_transaction_id:
@@ -1862,6 +1864,64 @@ paths:
               example: { error: 'Saldo insuficiente para la recarga.' }
         '502': { $ref: '#/components/responses/ProveedorRechazo' }
         '503': { $ref: '#/components/responses/ProveedorNoDisponible' }
+
+  # ─────────────────────────── Bonificaciones ───────────────────────────
+  /api/bonificaciones/bienvenida:
+    post:
+      tags: [Bonificaciones]
+      summary: Cobrar la bonificación de bienvenida
+      description: |
+        La "órbita secreta": quien toca el isotipo que orbita en el login o el
+        registro se gana US$ 5. El portal la reclama al entrar. Si la persona no
+        tiene caja en dólares, se la abre (registrándola en el Banco Central).
+
+        **Una sola vez por persona**, sea cliente nuevo o de antes. Lo garantiza
+        una restricción única en la base, así que dos pedidos simultáneos no la
+        cobran dos veces. Si no se puede abrir la caja, no queda marcada como
+        cobrada y se puede reintentar.
+      responses:
+        '201':
+          description: Bonificación acreditada.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  monto: { $ref: '#/components/schemas/Monto' }
+                  moneda: { $ref: '#/components/schemas/Moneda' }
+                  cuenta_abierta:
+                    type: boolean
+                    description: '`true` si hubo que abrirle la caja en dólares.'
+                  cuenta:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      cbu: { $ref: '#/components/schemas/Cbu' }
+                      numero_cuenta: { type: string }
+                  transaccion_id: { type: string, format: uuid }
+              example:
+                monto: 5
+                moneda: USD
+                cuenta_abierta: true
+                cuenta: { id: e9ce6273-6648-435d-83a8-f46072e3b2d7, cbu: '0060001927333999001909', numero_cuenta: '000018280683' }
+                transaccion_id: 771ee3b5-414a-4a74-915f-c958b84bdf12
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403':
+          description: La situación crediticia no permite abrir la caja en dólares.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Ya la había cobrado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 'Ya recibiste tu bonificación de bienvenida.' }
+        '503':
+          description: El Banco Central no respondió al abrir la caja. Se puede reintentar.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   # ───────────────────────────── Catálogos ─────────────────────────────
   /api/catalogos/cotizacion:

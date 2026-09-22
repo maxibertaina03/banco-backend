@@ -10,6 +10,7 @@ const plazosFijosRouter = require('../modules/plazos-fijos-router');
 const chatbotRouter = require('../modules/chatbot-router');
 const serviciosRouter = require('../modules/servicios-router');
 const recargasRouter = require('../modules/recargas-router');
+const bonificacionesRouter = require('../modules/bonificaciones-router');
 
 
 const router = express.Router();
@@ -25,6 +26,7 @@ router.use('/transacciones', transaccionesRouter);
 router.use('/chatbot', chatbotRouter);
 router.use('/servicios', serviciosRouter);
 router.use('/recargas', recargasRouter);
+router.use('/bonificaciones', bonificacionesRouter);
 
 router.use('/central-bank', centralBankRouter);
 router.use('/destinatarios', createCrudRouter(entities.destinatarios));

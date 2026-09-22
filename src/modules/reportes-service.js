@@ -28,6 +28,7 @@ const CATEGORIAS = {
   plazo_fijo_acreditacion:  { sale: 'Inversiones',              entra: 'Inversiones cobradas' },
   pago_servicio:            { sale: 'Servicios',                entra: 'Devoluciones de servicios' },
   recarga_celular:          { sale: 'Recargas de celular',      entra: 'Devoluciones de recargas' },
+  bonificacion:             { sale: 'Bonificaciones',           entra: 'Bonificaciones' },
 };
 
 const SIN_CATEGORIA = { sale: 'Otros gastos', entra: 'Otros ingresos' };

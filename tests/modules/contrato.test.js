@@ -38,6 +38,7 @@ function rutasImplementadas() {
     // Todavía no existen: se leen si aparecen.
     serviciosRouter: 'servicios',
     recargasRouter: 'recargas',
+    bonificacionesRouter: 'bonificaciones',
   };
 
   const rutas = new Set();
