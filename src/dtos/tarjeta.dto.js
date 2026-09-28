@@ -6,6 +6,7 @@
 // único lugar, así que no hay forma de exponerlo por descuido desde otra query.
 
 const { aNumeroDeApi } = require('../utils/dinero');
+const { buscarNivel } = require('../modules/niveles-tarjeta');
 
 /** `4506001234567890` → `**** **** **** 7890` */
 function enmascarar(numero) {
@@ -31,6 +32,11 @@ function aTarjetaPublica(row) {
     numero_enmascarado: enmascarar(row.numero),
     cuenta_id: row.cuenta_id ?? null,
     limite: aNumeroDeApi(row.limite),
+    // El nivel viaja con su nombre y beneficios: la pantalla muestra la tarjeta
+    // y su detalle sin tener que repetir el catálogo del banco.
+    nivel: row.nivel ?? null,
+    nivel_nombre: buscarNivel(row.nivel)?.nombre ?? null,
+    beneficios: buscarNivel(row.nivel)?.beneficios ?? null,
     disponible: aNumeroDeApi(row.disponible),
     estado: row.estado,
     vencimiento: vencimientoCorto(row.vencimiento),

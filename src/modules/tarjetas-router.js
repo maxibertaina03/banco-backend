@@ -21,10 +21,17 @@ const emisionSchema = z
     persona_id: uuidLike,
     tipo: z.enum(['debito', 'credito']),
     cuenta_id: uuidLike.nullable().optional(),
-    limite: z.coerce.number().positive().nullable().optional(),
+    // El nivel define el límite: lo pone el banco, no el cliente.
+    nivel: z.enum(['standard', 'gold', 'platinum', 'black']).nullable().optional(),
+    limite: z
+      .any()
+      .optional()
+      .refine((v) => v === undefined || v === null, {
+        message: 'El límite lo define el banco según el nivel de la tarjeta. Mandá `nivel` en su lugar.',
+      }),
   })
-  .refine((d) => (d.tipo === 'debito' ? Boolean(d.cuenta_id) : Boolean(d.limite)), {
-    message: 'Una tarjeta de débito necesita cuenta_id; una de crédito, limite.',
+  .refine((d) => (d.tipo === 'debito' ? Boolean(d.cuenta_id) : Boolean(d.nivel)), {
+    message: 'Una tarjeta de débito necesita cuenta_id; una de crédito, nivel.',
   });
 
 const consumoSchema = z.object({
@@ -52,7 +59,7 @@ router.post(
       personaId: req.body.persona_id,
       tipo: req.body.tipo,
       cuentaId: req.body.cuenta_id ?? null,
-      limite: req.body.limite ?? null,
+      nivel: req.body.nivel ?? null,
       usuarioActual: req.usuarioActual,
       ipAddress: req.ip || null,
     });

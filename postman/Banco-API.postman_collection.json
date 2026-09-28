@@ -2097,6 +2097,26 @@
       "name": "Tarjetas",
       "item": [
         {
+          "name": "Ver niveles que puede pedir",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "Los cuatro niveles con límite y beneficios, y cuáles alcanza esta persona.",
+            "url": {
+              "raw": "{{baseUrl}}/personas/{{personaId}}/tarjetas/oferta",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "personas",
+                "{{personaId}}",
+                "tarjetas",
+                "oferta"
+              ]
+            }
+          }
+        },
+        {
           "name": "Emitir tarjeta de débito",
           "request": {
             "method": "POST",
@@ -2122,7 +2142,7 @@
           }
         },
         {
-          "name": "Emitir tarjeta de crédito",
+          "name": "Emitir tarjeta de crédito (por nivel)",
           "request": {
             "method": "POST",
             "header": [
@@ -2142,8 +2162,9 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"persona_id\": \"{{personaId}}\",\n  \"tipo\": \"credito\",\n  \"limite\": 500000\n}"
-            }
+              "raw": "{\n  \"persona_id\": \"{{personaId}}\",\n  \"tipo\": \"credito\",\n  \"nivel\": \"gold\"\n}"
+            },
+            "description": "El límite lo define el nivel. Mandar `limite` responde 400."
           }
         },
         {

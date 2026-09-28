@@ -26,7 +26,13 @@ const DEBITO = {
  * @param {string} o.consumido Total ya consumido en el período (crédito).
  * @param {object} o.cuenta    Cuenta asociada (débito).
  */
-function armar({ tarjeta = CREDITO, consumido = '0', cuenta = { id: 'c-ars', saldo: '100000.00', activa: true } } = {}) {
+function armar({
+  tarjeta = CREDITO,
+  consumido = '0',
+  cuenta = { id: 'c-ars', saldo: '100000.00', activa: true },
+  situacion = 1,
+  cuentasDePersona = [{ moneda: 'ARS', saldo: '5000000.00' }],
+} = {}) {
   const escrituras = [];
 
   const client = {
@@ -34,7 +40,9 @@ function armar({ tarjeta = CREDITO, consumido = '0', cuenta = { id: 'c-ars', sal
       const t = typeof sql === 'string' ? sql : sql.text;
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(t)) return { rows: [], rowCount: 0 };
       if (t.includes('FROM tarjetas')) return { rows: [tarjeta], rowCount: 1 };
-      if (t.includes('FROM personas')) return { rows: [{ id: 'p1' }], rowCount: 1 };
+      if (t.includes('FROM personas')) return { rows: [{ id: 'p1', dni: '30111222' }], rowCount: 1 };
+      // La oferta de niveles mira los saldos de la persona, no una cuenta puntual.
+      if (t.includes('FROM cuentas WHERE persona_id')) return { rows: cuentasDePersona, rowCount: cuentasDePersona.length };
       if (t.includes('FROM cuentas')) return { rows: [cuenta], rowCount: cuenta ? 1 : 0 };
       if (t.includes('SUM(monto)')) return { rows: [{ total: consumido }], rowCount: 1 };
       // El consumo de débito registra el movimiento en el extracto, así que el
@@ -51,7 +59,7 @@ function armar({ tarjeta = CREDITO, consumido = '0', cuenta = { id: 'c-ars', sal
         return { rows: [{ id: 'a1', tarjeta_id: tarjeta.id, monto: params[2], estado: params[4], motivo_rechazo: params[5] }], rowCount: 1 };
       }
       if (t.includes('INSERT INTO tarjetas')) {
-        return { rows: [{ id: 't-nueva', numero: params[2], tipo: params[1], limite: params[4] }], rowCount: 1 };
+        return { rows: [{ id: 't-nueva', numero: params[2], tipo: params[1], limite: params[4], nivel: params[5] }], rowCount: 1 };
       }
       if (t.includes('UPDATE tarjetas')) return { rows: [{ ...tarjeta, estado: params[0] }], rowCount: 1 };
       return { rows: [], rowCount: 0 };
@@ -60,7 +68,15 @@ function armar({ tarjeta = CREDITO, consumido = '0', cuenta = { id: 'c-ars', sal
   };
 
   const pool = { connect: vi.fn(async () => client), query: client.query };
-  return { servicio: createTarjetasService({ pool, escribirLogDeAuditoria: vi.fn() }), client, escrituras };
+  // El Banco Central y la cotización, inyectados: los niveles dependen de ellos.
+  const riesgoCrediticio = { consultarSituacion: vi.fn(async () => ({ situacion })) };
+  const mercado = { obtenerCotizacionDolar: vi.fn(async () => ({ compra: 1480, venta: 1530 })) };
+  return {
+    servicio: createTarjetasService({ pool, escribirLogDeAuditoria: vi.fn(), riesgoCrediticio, mercado }),
+    client,
+    escrituras,
+    riesgoCrediticio,
+  };
 }
 
 describe('emitirTarjeta — las reglas de coherencia', () => {
@@ -70,7 +86,7 @@ describe('emitirTarjeta — las reglas de coherencia', () => {
       .rejects.toMatchObject({ status: 400 });
   });
 
-  it('rechaza una de crédito sin límite', async () => {
+  it('rechaza una de crédito sin nivel', async () => {
     const { servicio } = armar();
     await expect(servicio.emitirTarjeta({ personaId: 'p1', tipo: 'credito' }))
       .rejects.toMatchObject({ status: 400 });
@@ -78,13 +94,13 @@ describe('emitirTarjeta — las reglas de coherencia', () => {
 
   it('rechaza una de crédito atada a una cuenta', async () => {
     const { servicio } = armar();
-    await expect(servicio.emitirTarjeta({ personaId: 'p1', tipo: 'credito', limite: 100000, cuentaId: 'c-ars' }))
+    await expect(servicio.emitirTarjeta({ personaId: 'p1', tipo: 'credito', nivel: 'standard', cuentaId: 'c-ars' }))
       .rejects.toThrow(/no se ata a una cuenta/);
   });
 
   it('emite una de crédito con el BIN acordado', async () => {
     const { servicio } = armar();
-    const t = await servicio.emitirTarjeta({ personaId: 'p1', tipo: 'credito', limite: 500000 });
+    const t = await servicio.emitirTarjeta({ personaId: 'p1', tipo: 'credito', nivel: 'gold' });
     expect(t.numero).toMatch(new RegExp(`^${BIN}\\d{10}$`));
     expect(t.numero).toHaveLength(16);
   });
@@ -201,5 +217,77 @@ describe('obtenerResumen', () => {
     const { servicio } = armar({ tarjeta: DEBITO });
     await expect(servicio.obtenerResumen({ tarjetaId: 't-deb' }))
       .rejects.toMatchObject({ status: 400 });
+  });
+});
+
+// ── Niveles de tarjeta ──────────────────────────────────────────────────────
+
+describe('emitirTarjeta — el límite lo pone el banco', () => {
+  it('el límite sale del nivel, no del cliente', async () => {
+    const { servicio, escrituras } = armar({ cuentasDePersona: [{ moneda: 'ARS', saldo: '5000000.00' }] });
+
+    const t = await servicio.emitirTarjeta({ personaId: 'p1', tipo: 'credito', nivel: 'gold' });
+
+    expect(t.nivel).toBe('gold');
+    expect(Number(t.limite)).toBe(1500000);
+  });
+
+  it('rechaza un nivel que la persona no alcanza, diciendo qué le falta', async () => {
+    const { servicio } = armar({ cuentasDePersona: [{ moneda: 'ARS', saldo: '100000.00' }] });
+
+    await expect(servicio.emitirTarjeta({ personaId: 'p1', tipo: 'credito', nivel: 'black' }))
+      .rejects.toMatchObject({ status: 403, message: expect.stringMatching(/12\.000\.000/) });
+  });
+
+  it('con situación 3 no emite ninguna de crédito', async () => {
+    const { servicio } = armar({ situacion: 3, cuentasDePersona: [{ moneda: 'ARS', saldo: '99000000.00' }] });
+
+    await expect(servicio.emitirTarjeta({ personaId: 'p1', tipo: 'credito', nivel: 'standard' }))
+      .rejects.toMatchObject({ status: 403 });
+  });
+
+  it('un nivel inventado no pasa la validación', async () => {
+    const { servicio } = armar();
+    await expect(servicio.emitirTarjeta({ personaId: 'p1', tipo: 'credito', nivel: 'diamante' }))
+      .rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('obtenerOfertaDeNiveles', () => {
+  it('valúa los dólares a la cotización de compra para el patrimonio', async () => {
+    // 1.000 USD a 1.480 son 1.480.000 pesos: alcanza para Gold, no para Platinum.
+    const { servicio } = armar({ cuentasDePersona: [{ moneda: 'ARS', saldo: '20000.00' }, { moneda: 'USD', saldo: '1000.00' }] });
+
+    const oferta = await servicio.obtenerOfertaDeNiveles({ personaId: 'p1' });
+
+    expect(oferta.patrimonio).toBe(1500000);
+    expect(oferta.cotizacion_usada).toBe(1480);
+    expect(oferta.nivel_maximo).toBe('gold');
+  });
+
+  it('si no hay cotización, los dólares no se cuentan', async () => {
+    // Preferible quedarse corto que ofrecer un límite alto con un número inventado.
+    const { servicio } = armar({ cuentasDePersona: [{ moneda: 'USD', saldo: '9000.00' }] });
+    const conFalla = createTarjetasService({
+      pool: { connect: async () => ({ query: async () => ({ rows: [], rowCount: 0 }), release: () => {} }),
+        query: async (sql) => (String(sql).includes('FROM personas') ? { rows: [{ id: 'p1', dni: '1' }], rowCount: 1 }
+          : { rows: [{ moneda: 'USD', saldo: '9000.00' }], rowCount: 1 }) },
+      escribirLogDeAuditoria: vi.fn(),
+      riesgoCrediticio: { consultarSituacion: vi.fn(async () => ({ situacion: 1 })) },
+      mercado: { obtenerCotizacionDolar: vi.fn(async () => { throw new Error('DolarAPI caída'); }) },
+    });
+
+    const oferta = await conFalla.obtenerOfertaDeNiveles({ personaId: 'p1' });
+
+    expect(oferta.patrimonio).toBe(0);
+    expect(oferta.cotizacion_usada).toBeNull();
+    expect(oferta.nivel_maximo).toBe('standard');
+    void servicio;
+  });
+
+  it('no deja ver la oferta de otra persona', async () => {
+    const { servicio } = armar();
+    await expect(servicio.obtenerOfertaDeNiveles({ personaId: 'p1', usuarioActual: { persona_id: 'p2', roles: ['cliente'] } }))
+      .rejects.toMatchObject({ status: 403 });
   });
 });

@@ -419,7 +419,18 @@ components:
         limite:
           allOf: [{ $ref: '#/components/schemas/Monto' }]
           nullable: true
+          description: 'Sólo en crédito. Lo define el nivel, no el cliente.'
+        nivel:
+          type: string
+          nullable: true
+          enum: [standard, gold, platinum, black]
           description: Sólo en crédito.
+        nivel_nombre: { type: string, nullable: true, example: Gold }
+        beneficios:
+          type: array
+          nullable: true
+          items: { type: string }
+          description: Los del nivel, para mostrar en el detalle de la tarjeta.
         disponible:
           allOf: [{ $ref: '#/components/schemas/Monto' }]
           nullable: true
@@ -1011,8 +1022,9 @@ paths:
       tags: [Tarjetas]
       summary: Emitir una tarjeta
       description: |
-        Emite una tarjeta de débito, atada a una cuenta, o de crédito, con límite
-        propio. El número completo no se devuelve nunca: sólo el enmascarado.
+        Emite una tarjeta de débito, atada a una cuenta, o de crédito, con el
+        límite del nivel que le corresponda. El número completo no se devuelve
+        nunca: sólo el enmascarado.
       requestBody:
         required: true
         content:
@@ -1028,15 +1040,20 @@ paths:
                   format: uuid
                   nullable: true
                   description: Obligatorio si el tipo es `debito`.
-                limite:
-                  allOf: [{ $ref: '#/components/schemas/Monto' }]
+                nivel:
+                  type: string
+                  enum: [standard, gold, platinum, black]
                   nullable: true
-                  description: Obligatorio si el tipo es `credito`.
+                  description: |
+                    Obligatorio si el tipo es `credito`. **El límite lo define el
+                    nivel**, así que mandar `limite` responde 400. Para saber qué
+                    niveles alcanza la persona:
+                    `GET /api/personas/{personaId}/tarjetas/oferta`.
             examples:
               debito:
                 value: { persona_id: 9a1b2c3d-0000-4000-8000-000000000010, tipo: debito, cuenta_id: 4b1c8e2a-0000-4000-8000-000000000001 }
               credito:
-                value: { persona_id: 9a1b2c3d-0000-4000-8000-000000000010, tipo: credito, limite: 500000 }
+                value: { persona_id: 9a1b2c3d-0000-4000-8000-000000000010, tipo: credito, nivel: gold }
       responses:
         '201':
           description: Tarjeta emitida.
@@ -1047,6 +1064,77 @@ paths:
           description: Falta `cuenta_id` en débito, o `limite` en crédito.
         '401': { $ref: '#/components/responses/NoAutorizado' }
         '403': { $ref: '#/components/responses/Prohibido' }
+
+  /api/personas/{personaId}/tarjetas/oferta:
+    get:
+      tags: [Tarjetas]
+      summary: Niveles de tarjeta que puede pedir la persona
+      description: |
+        Los cuatro niveles con su límite y sus beneficios, y cuáles están a su
+        alcance hoy. El banco decide con dos datos: la situación en la Central de
+        Deudores y el patrimonio (saldos en pesos más los dólares valuados a la
+        cotización de compra).
+
+        Situación 3 o peor no habilita ninguna, igual que con los préstamos. Si
+        no se pudo consultar al Banco Central se ofrece sólo la Standard: es
+        preferible quedarse corto que dar un límite alto sin saber si la persona
+        debe en otro banco.
+      parameters:
+        - name: personaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Oferta de niveles.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  situacion:
+                    type: integer
+                    nullable: true
+                    description: 1 a 5 en la Central de Deudores; `null` si no se pudo consultar.
+                  patrimonio: { $ref: '#/components/schemas/Monto' }
+                  cotizacion_usada:
+                    type: number
+                    nullable: true
+                    description: Dólar comprador con el que se valuaron los saldos en USD.
+                  nivel_maximo:
+                    type: string
+                    nullable: true
+                    enum: [standard, gold, platinum, black]
+                  niveles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        nivel: { type: string, enum: [standard, gold, platinum, black] }
+                        nombre: { type: string, example: Gold }
+                        limite: { $ref: '#/components/schemas/Monto' }
+                        beneficios: { type: array, items: { type: string } }
+                        requisitos:
+                          type: object
+                          properties:
+                            situacion_maxima: { type: integer, example: 1 }
+                            patrimonio_minimo: { $ref: '#/components/schemas/Monto' }
+                        disponible: { type: boolean }
+                        motivo:
+                          type: string
+                          nullable: true
+                          description: Qué le falta, cuando no está disponible.
+              example:
+                situacion: 1
+                patrimonio: 404000
+                cotizacion_usada: 1495
+                nivel_maximo: standard
+                niveles:
+                  - { nivel: standard, nombre: Standard, limite: 300000, disponible: true, motivo: null }
+                  - { nivel: gold, nombre: Gold, limite: 1500000, disponible: false, motivo: 'Requiere un saldo total de $ 500.000; hoy tenés $ 404.000.' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Prohibido' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /api/personas/{personaId}/tarjetas:
     get:

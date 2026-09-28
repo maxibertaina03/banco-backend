@@ -351,6 +351,22 @@ router.get(
   })
 );
 
+// Los cuatro niveles con sus límites y beneficios, y cuáles puede pedir esta
+// persona según su situación crediticia y su patrimonio.
+router.get(
+  '/personas/:id/tarjetas/oferta',
+  validate(paramsSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    assertCanAccessPersona(req, req.params.id);
+    res.json(
+      await tarjetasService.obtenerOfertaDeNiveles({
+        personaId: req.params.id,
+        usuarioActual: req.usuarioActual,
+      })
+    );
+  })
+);
+
 router.get(
   '/personas/:id/tarjetas',
   validate(paramsSchema, 'params'),

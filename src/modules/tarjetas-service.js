@@ -14,8 +14,11 @@ const realPool = require('../db/pool');
 const { escribirLogDeAuditoria: realEscribirLog } = require('../utils/audit');
 const { Dinero } = require('../utils/dinero');
 const HttpError = require('../utils/http-error');
-const { esUsuarioInterno } = require('../utils/access-control');
+const { esUsuarioInterno, puedeOperarSobrePersona } = require('../utils/access-control');
 const movimientos = require('./movimientos');
+const realRiesgoCrediticio = require('./riesgo-crediticio');
+const realMercado = require('./mercado-service');
+const { buscarNivel, evaluarNiveles } = require('./niveles-tarjeta');
 
 // Prefijo de los números que emitimos. En un sistema real el BIN lo asigna la
 // marca; acá es una convención nuestra que sólo tiene que ser estable.
@@ -25,6 +28,8 @@ const ANIOS_VIGENCIA = 5;
 function createTarjetasService({
   pool = realPool,
   escribirLogDeAuditoria = realEscribirLog,
+  riesgoCrediticio = realRiesgoCrediticio,
+  mercado = realMercado,
 } = {}) {
   async function enTransaccionDeBd(fn) {
     const client = await pool.connect();
@@ -70,7 +75,79 @@ function createTarjetasService({
   }
 
   /** Emite una tarjeta de débito o de crédito. */
-  async function emitirTarjeta({ personaId, tipo, cuentaId = null, limite = null, usuarioActual, ipAddress }) {
+  /**
+   * Patrimonio de la persona en pesos: los saldos en pesos más los dólares
+   * valuados a la cotización de compra, que es lo que el banco pagaría por
+   * ellos. Si no hay cotización, los dólares no se cuentan: es preferible
+   * quedarse corto que ofrecer un nivel alto con un número inventado.
+   */
+  async function calcularPatrimonio(personaId) {
+    const r = await pool.query(
+      'SELECT moneda, saldo FROM cuentas WHERE persona_id = $1 AND activa = TRUE',
+      [personaId]
+    );
+
+    let cotizacion = null;
+    if (r.rows.some((c) => (c.moneda || 'ARS') === 'USD')) {
+      try {
+        cotizacion = await mercado.obtenerCotizacionDolar();
+      } catch {
+        cotizacion = null;
+      }
+    }
+
+    const total = r.rows.reduce((acc, c) => {
+      const saldo = Dinero.desde(c.saldo || 0);
+      if ((c.moneda || 'ARS') === 'ARS') return acc.mas(saldo);
+      return cotizacion?.compra ? acc.mas(saldo.por(cotizacion.compra)) : acc;
+    }, Dinero.CERO);
+
+    return { patrimonio: total.redondeado(), cotizacion };
+  }
+
+  /** Situación en la Central de Deudores, o null si no se pudo consultar. */
+  async function consultarSituacionSegura(dni, environment) {
+    if (!dni) return null;
+    try {
+      const r = await riesgoCrediticio.consultarSituacion(dni, environment);
+      return Number(r?.situacion) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Qué niveles de tarjeta puede pedir una persona hoy, y por qué no los otros.
+   *
+   * Es lo que alimenta la pantalla de "Pedir una tarjeta": mostrar los cuatro
+   * niveles con su límite y sus beneficios, y cuáles están a su alcance.
+   */
+  async function obtenerOfertaDeNiveles({ personaId, usuarioActual, environment }) {
+    if (!puedeOperarSobrePersona(usuarioActual, personaId)) {
+      throw new HttpError(403, 'No puedes ver la oferta de tarjetas de otra persona.');
+    }
+
+    const p = await pool.query('SELECT id, dni FROM personas WHERE id = $1 LIMIT 1', [personaId]);
+    if (p.rowCount === 0) {
+      throw new HttpError(404, `No existe la persona con id ${personaId}.`);
+    }
+
+    const [{ patrimonio, cotizacion }, situacion] = await Promise.all([
+      calcularPatrimonio(personaId),
+      consultarSituacionSegura(p.rows[0].dni, environment),
+    ]);
+
+    const evaluacion = evaluarNiveles({ situacion, patrimonio: patrimonio.aNumero() });
+
+    return {
+      situacion,
+      patrimonio: patrimonio.aNumero(),
+      cotizacion_usada: cotizacion?.compra ?? null,
+      ...evaluacion,
+    };
+  }
+
+  async function emitirTarjeta({ personaId, tipo, cuentaId = null, nivel = null, usuarioActual, ipAddress, environment }) {
     if (!['debito', 'credito'].includes(tipo)) {
       throw new HttpError(400, 'El tipo de tarjeta debe ser "debito" o "credito".');
     }
@@ -79,24 +156,37 @@ function createTarjetasService({
       if (!cuentaId) {
         throw new HttpError(400, 'Una tarjeta de débito necesita una cuenta asociada.');
       }
-      if (limite !== null) {
-        throw new HttpError(400, 'Una tarjeta de débito no lleva límite: debita del saldo de la cuenta.');
+      if (nivel) {
+        throw new HttpError(400, 'Una tarjeta de débito no lleva nivel ni límite: debita del saldo de la cuenta.');
       }
     } else {
-      if (!limite) {
-        throw new HttpError(400, 'Una tarjeta de crédito necesita un límite.');
-      }
       if (cuentaId) {
         throw new HttpError(400, 'Una tarjeta de crédito no se ata a una cuenta.');
+      }
+      if (!nivel) {
+        throw new HttpError(400, 'Elegí un nivel de tarjeta: standard, gold, platinum o black.');
+      }
+      if (!buscarNivel(nivel)) {
+        throw new HttpError(400, `El nivel "${nivel}" no existe. Son: standard, gold, platinum y black.`);
       }
     }
 
     let limiteExacto = null;
+    let nivelOtorgado = null;
+
     if (tipo === 'credito') {
-      limiteExacto = Dinero.desde(limite).redondeado();
-      if (!limiteExacto.esPositivo()) {
-        throw new HttpError(400, 'El límite debe ser mayor a cero.');
+      // Se vuelve a evaluar acá, fuera de la transacción de BD porque consulta
+      // al Banco Central: lo que diga el cliente no alcanza, el límite lo pone
+      // el banco.
+      const oferta = await obtenerOfertaDeNiveles({ personaId, usuarioActual, environment });
+      const elegido = oferta.niveles.find((n) => n.nivel === String(nivel).toLowerCase());
+
+      if (!elegido.disponible) {
+        throw new HttpError(403, elegido.motivo);
       }
+
+      nivelOtorgado = elegido.nivel;
+      limiteExacto = Dinero.desde(elegido.limite).redondeado();
     }
 
     return enTransaccionDeBd(async (client) => {
@@ -130,9 +220,9 @@ function createTarjetasService({
       for (let intento = 0; intento < 5 && !creada; intento += 1) {
         try {
           const r = await client.query(
-            `INSERT INTO tarjetas (persona_id, tipo, numero, cuenta_id, limite, vencimiento)
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-            [personaId, tipo, generarNumero(), cuentaId, limiteExacto?.aString() ?? null, vencimiento]
+            `INSERT INTO tarjetas (persona_id, tipo, numero, cuenta_id, limite, nivel, vencimiento)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [personaId, tipo, generarNumero(), cuentaId, limiteExacto?.aString() ?? null, nivelOtorgado, vencimiento]
           );
           creada = r.rows[0];
         } catch (error) {
@@ -364,7 +454,7 @@ function createTarjetasService({
     return esUsuarioInterno(usuarioActual) || tarjeta.persona_id === usuarioActual.persona_id;
   }
 
-  return { emitirTarjeta, listarPorPersona, autorizarConsumo, cambiarEstado, obtenerResumen };
+  return { emitirTarjeta, listarPorPersona, autorizarConsumo, cambiarEstado, obtenerResumen, obtenerOfertaDeNiveles };
 }
 
 const servicioPorDefecto = createTarjetasService();
@@ -375,6 +465,7 @@ module.exports = {
   autorizarConsumo: servicioPorDefecto.autorizarConsumo,
   cambiarEstado: servicioPorDefecto.cambiarEstado,
   obtenerResumen: servicioPorDefecto.obtenerResumen,
+  obtenerOfertaDeNiveles: servicioPorDefecto.obtenerOfertaDeNiveles,
   createTarjetasService,
   BIN,
 };
