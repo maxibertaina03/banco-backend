@@ -3,7 +3,10 @@ const env = require('../config/env');
 
 const pool = new Pool({
   connectionString: env.databaseUrl,
-  max: 20,                        // máximo conexiones simultáneas en el pool
+  // Conexiones simultáneas. Contra el pooler de Supabase en plan gratis, 20 era
+  // demasiado para lo que este banco necesita: 10 alcanza y deja lugar a las
+  // otras conexiones del proyecto. DB_POOL_MAX lo sube si algún día hace falta.
+  max: Number(process.env.DB_POOL_MAX || 10),
   idleTimeoutMillis: 30_000,      // cerrar conexiones idle después de 30s
   connectionTimeoutMillis: 30_000, // Supabase puede tardar en dar conexión, especialmente en cold start
   application_name: 'banco-backend',

@@ -1,0 +1,19 @@
+# Lo que NO va al contexto de build. Sin esto Docker copia node_modules entero
+# antes de empezar, y en un droplet de 512 MB eso es la diferencia entre
+# compilar en dos minutos y no compilar.
+node_modules
+npm-debug.log*
+
+# Secretos: las variables se inyectan al correr, nunca se hornean en la imagen.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+coverage
+tests
+*.test.js
+docs
+postman
+scripts/*.sql

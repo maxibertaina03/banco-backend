@@ -16,6 +16,17 @@ const logger = require('./utils/logger');
 
 const app = express();
 
+// ── Detrás del proxy ──────────────────────────────────────────────────────────
+// En el servidor la API no recibe el tráfico directo: primero pasa por nginx.
+// Sin esto, Express ve siempre la IP del proxy, y dos cosas se rompen en
+// silencio: el rate limit le cuenta todas las requests del mundo a una sola IP,
+// y la auditoría guarda la IP interna de Docker en lugar de la del cliente.
+//
+// El `1` es la cantidad de proxies de confianza que hay por delante (nginx, y
+// nada más). Poner `true` sería confiar en cualquier X-Forwarded-For que llegue,
+// y entonces cualquiera podría esquivar el límite inventando el header.
+app.set('trust proxy', 1);
+
 // ── Request logging ─────────────────────────────────────────────────────────
 // pino-http inyecta `req.log` con un child logger que ya tiene `req.id`
 // (UUID por request), method y url. Cada handler puede hacer
