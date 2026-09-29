@@ -417,6 +417,71 @@ router.get(
   })
 );
 
+// Cambiar el alias de una cuenta.
+//
+// Lo hace el titular sobre su propia cuenta, como en cualquier banco: el alias
+// es de quien la usa, no de un operador. `assertCanAccessCuenta` deja pasar
+// también a los roles internos, que pueden corregirlo sobre cualquier cuenta.
+//
+// El alias es único en todo el sistema financiero, así que la verdad la tiene
+// el Banco Central: se lo pedimos primero y recién si lo acepta queda guardado
+// acá. Al revés, nuestra base diría un alias que nadie puede usar para
+// transferirte.
+const aliasDeCuentaSchema = z.object({
+  alias: z
+    .string()
+    .trim()
+    .min(6, 'El alias tiene que tener al menos 6 caracteres.')
+    .max(20, 'El alias no puede superar los 20 caracteres.')
+    // El mismo juego de caracteres que acepta el Banco Central.
+    .regex(/^[A-Za-z0-9.-]+$/, 'El alias solo puede tener letras, números, puntos y guiones.'),
+  environment: z.enum(['test', 'prod']).optional(),
+});
+
+router.put(
+  '/cuentas/:id/alias',
+  validate(paramsSchema, 'params'),
+  validate(aliasDeCuentaSchema),
+  asyncHandler(async (req, res) => {
+    await assertCanAccessCuenta(req, req.params.id);
+
+    const cuenta = await pool.query('SELECT id, cbu, alias FROM cuentas WHERE id = $1 LIMIT 1', [
+      req.params.id,
+    ]);
+
+    if (cuenta.rowCount === 0) {
+      throw new HttpError(404, `No existe la cuenta con id ${req.params.id}.`);
+    }
+
+    if (!cuenta.rows[0].cbu) {
+      throw new HttpError(
+        409,
+        'La cuenta todavía no está registrada en el Banco Central, así que no se le puede poner alias.'
+      );
+    }
+
+    const alias = req.body.alias.toLowerCase();
+
+    if (alias === cuenta.rows[0].alias) {
+      return res.json(aCuentaPublica((await pool.query('SELECT * FROM cuentas WHERE id = $1', [req.params.id])).rows[0]));
+    }
+
+    try {
+      await centralBankService.assignAlias(cuenta.rows[0].cbu, alias, req.body.environment);
+    } catch (error) {
+      // 409 del Central: el alias ya lo tiene otra cuenta. Es el error más
+      // común y merece un mensaje que se entienda, no un 500.
+      if (error.status === 409 || /ya (existe|está)/i.test(error.message || '')) {
+        throw new HttpError(409, `El alias "${alias}" ya está en uso. Probá con otro.`);
+      }
+      throw error;
+    }
+
+    const actualizada = await pool.query('SELECT * FROM cuentas WHERE id = $1', [req.params.id]);
+    res.json(aCuentaPublica(actualizada.rows[0]));
+  })
+);
+
 // Movimientos de una cuenta, paginados. Es la ruta declarada en el contrato
 // (`/api/cuentas/{cuentaId}/movimientos`) y la que debería usar el frontend
 // nuevo. `/cuentas/:id/transacciones` queda como está porque el portal ya la
