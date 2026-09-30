@@ -22,6 +22,9 @@
 // Uso:
 //   node scripts/usar-persona-del-central.js              (sólo muestra el plan)
 //   node scripts/usar-persona-del-central.js --confirmar  (lo aplica)
+//
+// Se puede correr más de una vez sin romper nada: cada paso comprueba si ya
+// está hecho antes de tocar.
 
 require('dotenv').config();
 
@@ -90,8 +93,19 @@ async function main() {
   if (u.rowCount === 0) {
     throw new Error(`No se encontró el usuario de Clerk ${CLERK_GMAIL}. Revisá el id antes de seguir.`);
   }
+  console.log('   3/4  el login de Gmail ahora entra a la persona correcta');
+
+  // 4. Mudar la dirección de mail, para que el perfil muestre la que usás.
+  //
+  //    `personas.email` tiene índice único, así que primero hay que liberarla
+  //    de la persona vieja. Se le deja una variante con "+viejo", que sigue
+  //    siendo una dirección real y no choca con ninguna otra.
+  if (vieja.email === MAIL) {
+    const [usuario, dominio] = MAIL.split('@');
+    await pool.query('UPDATE personas SET email = $1 WHERE id = $2', [`${usuario}+viejo@${dominio}`, vieja.id]);
+  }
   await pool.query('UPDATE personas SET email = $1 WHERE id = $2', [MAIL, correcta.id]);
-  console.log('   3/3  el login de Gmail ahora entra a la persona correcta');
+  console.log('   4/4  el perfil muestra tu dirección de siempre');
 
   const enCentral = await central.findPersonByAlias(ALIAS);
   console.log(`\nListo. "${ALIAS}" → ${enCentral.nombre} ${enCentral.apellido} (${enCentral.cbu})`);
