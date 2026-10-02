@@ -12,6 +12,19 @@ const createIdempotency = require('../middlewares/idempotency');
 const prestamosService = require('./prestamos-service');
 const { aPrestamoPublico, aCuotaPublica } = require('../dtos');
 
+/** Una solicitud pendiente, con quién la pidió: el gerente necesita ver ambas. */
+function aSolicitudPendiente(fila) {
+  return {
+    ...aPrestamoPublico(fila),
+    solicitante: {
+      nombre: fila.nombre,
+      apellido: fila.apellido,
+      dni: fila.dni,
+      email: fila.email,
+    },
+  };
+}
+
 const router = express.Router();
 const idempotency = createIdempotency(pool);
 
@@ -48,6 +61,67 @@ router.post(
       fechaOtorgamiento: req.body.fecha_otorgamiento ?? null,
     });
     res.json(simulacion);
+  })
+);
+
+// ── La bandeja del gerente ──────────────────────────────────────────────────
+// Van ANTES de `/:id` por la misma razón que el barrido de mora: si no,
+// Express leería "pendientes" como un id y fallaría la validación de UUID.
+
+// El gerente resuelve solicitudes; el admin puede hacerlo también, porque es
+// quien cubre cuando no hay gerente disponible.
+const puedeResolverSolicitudes = requerirRoles(
+  ['gerente', 'admin'],
+  'Sólo un gerente puede aprobar o rechazar un préstamo.'
+);
+
+router.get(
+  '/pendientes',
+  puedeResolverSolicitudes,
+  asyncHandler(async (_req, res) => {
+    const pendientes = await prestamosService.listarPendientes();
+    res.json({ count: pendientes.length, data: pendientes.map(aSolicitudPendiente) });
+  })
+);
+
+const decisionSchema = z.object({
+  // Obligatorio: la decisión tiene que quedar explicada en la auditoría.
+  motivo: z.string().trim().min(10, 'Escribí el motivo de la decisión: al menos 10 caracteres.').max(500),
+  environment: z.enum(['test', 'prod']).optional(),
+});
+
+router.post(
+  '/:id/aprobacion',
+  puedeResolverSolicitudes,
+  validate(paramsSchema, 'params'),
+  validate(decisionSchema),
+  asyncHandler(async (req, res) => {
+    const prestamo = await prestamosService.resolverSolicitud({
+      prestamoId: req.params.id,
+      aprobar: true,
+      motivo: req.body.motivo,
+      usuarioActual: req.usuarioActual,
+      ipAddress: req.ip || null,
+      environment: req.body.environment,
+    });
+    res.json(aPrestamoPublico(prestamo));
+  })
+);
+
+router.post(
+  '/:id/rechazo',
+  puedeResolverSolicitudes,
+  validate(paramsSchema, 'params'),
+  validate(decisionSchema),
+  asyncHandler(async (req, res) => {
+    const prestamo = await prestamosService.resolverSolicitud({
+      prestamoId: req.params.id,
+      aprobar: false,
+      motivo: req.body.motivo,
+      usuarioActual: req.usuarioActual,
+      ipAddress: req.ip || null,
+    });
+    res.json(aPrestamoPublico(prestamo));
   })
 );
 

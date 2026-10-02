@@ -29,7 +29,12 @@ const {
 const uuid = uuidLike;
 const numericString = z.union([z.string(), z.number()]).transform((value) => String(value));
 const optionalNullableString = z.string().trim().min(1).nullable().optional();
-const internalOnly = [requerirRoles(['admin', 'operador', 'auditor', 'tesoreria'])];
+// Escribir en las tablas administrativas: sólo quien opera.
+const internalOnly = [requerirRoles(['admin', 'operador', 'tesoreria'])];
+
+// Leerlas: también el auditor. Su trabajo es justamente mirar los datos del
+// banco; lo que no puede es modificarlos.
+const internalRead = [requerirRoles(['admin', 'operador', 'tesoreria', 'auditor'])];
 
 const entities = {
   personas: {
@@ -49,8 +54,8 @@ const entities = {
       perfil_completo: z.boolean().optional(),
     }),
     access: {
-      list: internalOnly,
-      get: internalOnly,
+      list: internalRead,
+      get: internalRead,
       create: internalOnly,
       update: internalOnly,
       delete: internalOnly,
@@ -68,8 +73,8 @@ const entities = {
       descripcion: optionalNullableString,
     }),
     access: {
-      list: internalOnly,
-      get: internalOnly,
+      list: internalRead,
+      get: internalRead,
       create: internalOnly,
       update: internalOnly,
       delete: internalOnly,
@@ -87,8 +92,8 @@ const entities = {
       rol_id: uuid,
     }),
     access: {
-      list: internalOnly,
-      get: internalOnly,
+      list: internalRead,
+      get: internalRead,
       create: internalOnly,
       update: internalOnly,
       delete: internalOnly,
@@ -107,8 +112,8 @@ const entities = {
       activo: z.boolean().optional(),
     }),
     access: {
-      list: internalOnly,
-      get: internalOnly,
+      list: internalRead,
+      get: internalRead,
       create: internalOnly,
       update: internalOnly,
       delete: internalOnly,
@@ -127,8 +132,8 @@ const entities = {
       limite_transferencia: numericString.nullable().optional(),
     }),
     access: {
-      list: internalOnly,
-      get: internalOnly,
+      list: internalRead,
+      get: internalRead,
       create: internalOnly,
       update: internalOnly,
       delete: internalOnly,
@@ -152,8 +157,8 @@ const entities = {
       banco_central_registrada: z.boolean().optional(),
     }),
     access: {
-      list: internalOnly,
-      get: internalOnly,
+      list: internalRead,
+      get: internalRead,
       create: internalOnly,
       update: internalOnly,
       delete: internalOnly,
@@ -171,8 +176,8 @@ const entities = {
       descripcion: optionalNullableString,
     }),
     access: {
-      list: internalOnly,
-      get: internalOnly,
+      list: internalRead,
+      get: internalRead,
       create: internalOnly,
       update: internalOnly,
       delete: internalOnly,
@@ -214,8 +219,8 @@ const entities = {
       ip_address: optionalNullableString,
     }),
     access: {
-      list: internalOnly,
-      get: internalOnly,
+      list: internalRead,
+      get: internalRead,
       create: internalOnly,
       update: internalOnly,
       delete: internalOnly,

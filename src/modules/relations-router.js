@@ -6,7 +6,7 @@ const asyncHandler = require('../utils/async-handler');
 const HttpError = require('../utils/http-error');
 const { uuidLike } = require('../utils/schemas');
 const { paginationSchema } = require('../utils/pagination');
-const { tieneAlgunRol, esUsuarioInterno } = require('../utils/access-control');
+const { tieneAlgunRol, esUsuarioInterno, READ_ONLY_OVERSIGHT_ROLES } = require('../utils/access-control');
 const centralBankService = require('./central-bank-service');
 const cuentasService = require('./cuentas-service');
 const transaccionesService = require('./transacciones-service');
@@ -67,7 +67,7 @@ async function assertCanAccessCuenta(req, cuentaId) {
 }
 
 async function assertCanAccessUsuarioAuditoria(req, userId) {
-  if (tieneAlgunRol(req.usuarioActual, ['admin', 'auditor'])) {
+  if (tieneAlgunRol(req.usuarioActual, [...READ_ONLY_OVERSIGHT_ROLES])) {
     return;
   }
 

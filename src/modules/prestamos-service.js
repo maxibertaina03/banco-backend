@@ -30,6 +30,10 @@ const movimientos = require('./movimientos');
 // acordada, y coincide con el umbral de situación 1 del BCRA.
 const DIAS_PARA_MORA = 31;
 
+// A partir de esta situación en la Central de Deudores, la solicitud no se
+// aprueba sola. Es el mismo umbral que bloquea la apertura de cuentas.
+const SITUACION_QUE_EXIGE_REVISION = 3;
+
 function createPrestamosService({
   pool = realPool,
   centralBankService = realCentralBankService,
@@ -104,7 +108,12 @@ function createPrestamosService({
       throw new HttpError(400, 'La persona no tiene DNI cargado, y hace falta para informar la deuda.');
     }
 
-    await riesgoCrediticio.verificarPuedeOperar(dni, 'otorgar el préstamo', environment);
+    // El filtro de la Central ya no corta la solicitud: define si el préstamo
+    // se acredita solo o si queda esperando a que un gerente lo revise. Antes
+    // el cliente con mala situación recibía un 403 y ahí terminaba todo, sin
+    // que nadie del banco pudiera mirar el caso.
+    const riesgo = await evaluarRiesgoParaSolicitud(dni, environment);
+    const requiereRevision = !riesgo.aprobadoAutomaticamente;
 
     const simulacion = calculo.simularPrestamo({ capital, cuotas, tna: tnaFinal, fechaOtorgamiento: fecha });
 
@@ -113,8 +122,8 @@ function createPrestamosService({
         `INSERT INTO prestamos (
            persona_id, cuenta_id, moneda, capital, cuotas, tna, tem,
            cuota_mensual, total_a_pagar, total_intereses, cft, saldo_deuda,
-           fecha_otorgamiento
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+           fecha_otorgamiento, estado, situacion_al_solicitar
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
         [
           personaId, cuentaId, moneda,
           Dinero.desde(simulacion.capital).aString(),
@@ -123,8 +132,12 @@ function createPrestamosService({
           Dinero.desde(simulacion.total_a_pagar).aString(),
           Dinero.desde(simulacion.total_intereses).aString(),
           simulacion.cft,
-          Dinero.desde(simulacion.capital).aString(),
+          // Mientras espera revisión no debe un peso: todavía no se le entregó
+          // nada. La restricción de la tabla lo exige.
+          requiereRevision ? '0' : Dinero.desde(simulacion.capital).aString(),
           fecha,
+          requiereRevision ? 'pendiente_revision' : 'vigente',
+          riesgo.situacion,
         ]
       );
       const creado = insercion.rows[0];
@@ -147,17 +160,11 @@ function createPrestamosService({
         params
       );
 
-      // Acreditar el capital y dejar el movimiento en el extracto: sin esto el
-      // cliente ve su saldo saltar sin explicación.
-      const cbuCuenta = await client.query('SELECT cbu FROM cuentas WHERE id = $1', [cuentaId]);
-      await movimientos.acreditar(client, {
-        cuentaId,
-        cbu: cbuCuenta.rows[0]?.cbu ?? null,
-        monto: Dinero.desde(simulacion.capital).aString(),
-        tipo: 'prestamo',
-        canal: 'prestamo_acreditado',
-        descripcion: `Acreditación de préstamo a ${cuotas} cuotas`,
-      });
+      // La plata se entrega sólo si el préstamo quedó aprobado. Si espera al
+      // gerente, el cronograma ya está calculado pero la cuenta no se toca.
+      if (!requiereRevision) {
+        await acreditarCapital(client, { cuentaId, capital: simulacion.capital, cuotas });
+      }
 
       await escribirLogDeAuditoria(client, {
         usuarioId: usuarioActual?.id,
@@ -174,9 +181,141 @@ function createPrestamosService({
     // El informe al Central va DESPUÉS del commit y sin romper la operación si
     // falla: el préstamo ya está otorgado y el dinero acreditado. Si el Central
     // no responde, el barrido de mora lo reinformará más adelante.
-    await informarDeudaSinRomper(prestamo, dni, environment);
+    // Al Central se le informa una deuda que existe. Un préstamo en revisión
+    // todavía no la generó.
+    if (!requiereRevision) {
+      await informarDeudaSinRomper(prestamo, dni, environment);
+    }
 
-    return { ...prestamo, cronograma: simulacion.cronograma };
+    return { ...prestamo, cronograma: simulacion.cronograma, requiere_revision: requiereRevision };
+  }
+
+  /**
+   * Si el préstamo se puede aprobar solo, o si lo tiene que mirar un gerente.
+   *
+   * Tres casos:
+   *  - Situación 1 o 2 → aprobado automáticamente, como siempre.
+   *  - Situación 3 o peor → a revisión. Antes era un 403 y el cliente no tenía
+   *    a dónde ir; ahora queda el expediente para que alguien lo decida.
+   *  - El Banco Central no responde → también a revisión. Otorgar a ciegas
+   *    sería peor que hacer esperar.
+   */
+  async function evaluarRiesgoParaSolicitud(dni, environment) {
+    try {
+      const { situacion } = await riesgoCrediticio.consultarSituacion(dni, environment);
+      return {
+        situacion,
+        aprobadoAutomaticamente: situacion < SITUACION_QUE_EXIGE_REVISION,
+      };
+    } catch {
+      return { situacion: null, aprobadoAutomaticamente: false };
+    }
+  }
+
+  /** Entrega el capital y lo deja en el extracto, para que el saldo no salte solo. */
+  async function acreditarCapital(client, { cuentaId, capital, cuotas }) {
+    const cuenta = await client.query('SELECT cbu FROM cuentas WHERE id = $1', [cuentaId]);
+    await movimientos.acreditar(client, {
+      cuentaId,
+      cbu: cuenta.rows[0]?.cbu ?? null,
+      monto: Dinero.desde(capital).aString(),
+      tipo: 'prestamo',
+      canal: 'prestamo_acreditado',
+      descripcion: `Acreditación de préstamo a ${cuotas} cuotas`,
+    });
+  }
+
+  /** La bandeja del gerente: lo que está esperando una decisión. */
+  async function listarPendientes({ limit = 50 } = {}) {
+    const r = await pool.query(
+      `SELECT pr.*, p.nombre, p.apellido, p.dni, p.email
+         FROM prestamos pr
+         JOIN personas p ON p.id = pr.persona_id
+        WHERE pr.estado = 'pendiente_revision'
+        ORDER BY pr.created_at ASC
+        LIMIT $1`,
+      [limit]
+    );
+    return r.rows;
+  }
+
+  /**
+   * El gerente resuelve una solicitud.
+   *
+   * Al aprobar se acredita la plata y se informa la deuda al Central, que es lo
+   * que `otorgar` no hizo en su momento. El motivo es obligatorio: un préstamo
+   * otorgado contra el criterio del banco sin explicación escrita no se puede
+   * defender después.
+   */
+  async function resolverSolicitud({ prestamoId, aprobar, motivo, usuarioActual, ipAddress, environment }) {
+    const texto = typeof motivo === 'string' ? motivo.trim() : '';
+    if (texto.length < 10) {
+      throw new HttpError(400, 'Escribí el motivo de la decisión: al menos 10 caracteres.');
+    }
+
+    const resuelto = await enTransaccionDeBd(async (client) => {
+      // FOR UPDATE: si dos gerentes abren la misma solicitud, el segundo espera
+      // y encuentra el préstamo ya resuelto en vez de acreditar dos veces.
+      const r = await client.query(
+        `SELECT pr.*, p.dni FROM prestamos pr
+           JOIN personas p ON p.id = pr.persona_id
+          WHERE pr.id = $1 FOR UPDATE OF pr`,
+        [prestamoId]
+      );
+      if (r.rowCount === 0) {
+        throw new HttpError(404, `No existe el préstamo con id ${prestamoId}.`);
+      }
+
+      const prestamo = r.rows[0];
+      if (prestamo.estado !== 'pendiente_revision') {
+        throw new HttpError(409, `Este préstamo ya no está pendiente: está ${prestamo.estado}.`);
+      }
+
+      const actualizado = await client.query(
+        `UPDATE prestamos
+            SET estado = $1,
+                saldo_deuda = $2,
+                revisado_por = $3,
+                revisado_en = NOW(),
+                motivo_revision = $4,
+                updated_at = NOW()
+          WHERE id = $5 RETURNING *`,
+        [
+          aprobar ? 'vigente' : 'rechazado',
+          aprobar ? Dinero.desde(prestamo.capital).aString() : '0',
+          usuarioActual?.id ?? null,
+          texto,
+          prestamoId,
+        ]
+      );
+
+      if (aprobar) {
+        await acreditarCapital(client, {
+          cuentaId: prestamo.cuenta_id,
+          capital: prestamo.capital,
+          cuotas: prestamo.cuotas,
+        });
+      }
+
+      await escribirLogDeAuditoria(client, {
+        usuarioId: usuarioActual?.id,
+        accion: aprobar ? 'APROBAR_PRESTAMO' : 'RECHAZAR_PRESTAMO',
+        entidad: 'prestamos',
+        entidadId: prestamoId,
+        payloadAntes: prestamo,
+        payloadDespues: actualizado.rows[0],
+        ipAddress,
+      });
+
+      return { ...actualizado.rows[0], dni: prestamo.dni };
+    });
+
+    if (aprobar) {
+      await informarDeudaSinRomper(resuelto, resuelto.dni, environment);
+    }
+
+    const { dni: _dni, ...publico } = resuelto;
+    return publico;
   }
 
   /** Informa la deuda al Central, dejando warn si falla en vez de tirar. */
@@ -465,7 +604,7 @@ function createPrestamosService({
     return { page, limit, count: r.rows.length, data: r.rows };
   }
 
-  return { simular, otorgar, pagarCuota, precancelar, actualizarMora, obtenerPorId, listar };
+  return { simular, otorgar, pagarCuota, precancelar, actualizarMora, obtenerPorId, listar, listarPendientes, resolverSolicitud };
 }
 
 const servicioPorDefecto = createPrestamosService();
@@ -474,4 +613,5 @@ module.exports = {
   ...servicioPorDefecto,
   createPrestamosService,
   DIAS_PARA_MORA,
+  SITUACION_QUE_EXIGE_REVISION,
 };

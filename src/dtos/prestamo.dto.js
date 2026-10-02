@@ -40,7 +40,18 @@ function aPrestamoPublico(row) {
     estado: row.estado,
     fecha_otorgamiento: aFechaSimple(row.fecha_otorgamiento),
     created_at: row.created_at,
+    // El expediente de la revisión. Sólo tiene algo cuando el préstamo pasó por
+    // el gerente, así que para los aprobados solos va en null.
+    situacion_al_solicitar: row.situacion_al_solicitar ?? null,
+    revisado_en: row.revisado_en ?? null,
+    motivo_revision: row.motivo_revision ?? null,
   };
+
+  // `otorgar` lo devuelve para que el portal sepa si mostrar "ya está acreditado"
+  // o "queda esperando la revisión de un gerente".
+  if (row.requiere_revision !== undefined) {
+    publico.requiere_revision = row.requiere_revision;
+  }
   // El cronograma sólo viaja en el detalle, no en los listados: son hasta 72
   // filas por préstamo y engordarían la respuesta sin que nadie las use.
   if (row.cronograma) {
