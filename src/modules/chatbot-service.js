@@ -3,9 +3,11 @@ const HttpError = require('../utils/http-error');
 const realPool = require('../db/pool');
 const env = require('../config/env');
 const logger = require('../utils/logger');
-const creditProfileService = require('./credit-profile-service');
-const { createCreditCardEligibilityService } = require('./credit-card-eligibility-service');
-const creditCardRules = require('../config/credit-card-rules.json');
+// La misma evaluación que usa el banco para emitir la tarjeta. El asistente no
+// puede tener un criterio propio: si dijera algo distinto de lo que después
+// contesta "Pedir una tarjeta", el cliente recibiría dos respuestas opuestas.
+const tarjetasService = require('./tarjetas-service');
+const { NIVELES } = require('./niveles-tarjeta');
 
 const MAX_MESSAGE_LENGTH = 1200;
 const MAX_HISTORY_MESSAGES = 6;
@@ -32,18 +34,21 @@ Reglas de seguridad (siempre):
 - Ante fraude, bloqueo de tarjeta o reclamos delicados, derivá al canal de atención humana con los pasos claros.
 
 Consultas de historial y estado crediticio:
-- Cuando el cliente pregunte por su historial crediticio, su situación o su score, usá la herramienta obtener_estado_crediticio. Nunca respondas con datos que no hayan salido de esa herramienta.
-- Explicá el resultado en lenguaje simple. Por ejemplo, si la situación BCRA es 1, decile que es normal, sin deudas con problemas. No uses jerga sin explicarla.
-- Mencioná la fecha de última actualización de los datos para que el cliente sepa qué tan recientes son.
-- Si la herramienta indica que los datos son simulados, aclaralo expresamente; nunca los presentes como datos reales del banco.
+- Cuando el cliente pregunte por su historial crediticio o su situación, usá la herramienta obtener_estado_crediticio. Nunca respondas con datos que no hayan salido de esa herramienta.
+- Esa herramienta devuelve dos cosas reales: su situación en la Central de Deudores del Banco Central (1 a 5) y el saldo total de sus cuentas, con los dólares valuados a la cotización de compra.
+- Explicá el resultado en lenguaje simple: la herramienta ya trae la descripción de cada situación. No uses jerga sin explicarla.
+- El banco NO tiene el score crediticio, ni los ingresos, ni la antigüedad laboral del cliente. Si pregunta por eso, decile con claridad que el banco no cuenta con ese dato, y no lo estimes.
+- Si el campo "pudo_consultarse" es falso, el Banco Central no respondió: decíselo y no inventes una situación.
 
-Consultas sobre tarjetas:
-- Cuando el cliente pregunte si puede sacar una tarjeta, usá la herramienta evaluar_elegibilidad_tarjeta.
-- Si es apto: decíselo con claridad y calidez, y explicale el siguiente paso para solicitarla. Aclará que la aprobación final depende de la evaluación del banco, sin sonar a que lo desalentás.
-- Si no es apto: decile de forma amable y directa que por ahora no, y detallá EXACTAMENTE qué criterios no cumple y cuánto le falta en cada uno, usando los valores que devuelve la herramienta. Después ofrecé las recomendaciones concretas y, si corresponde, la fecha estimada.
-- Si le falta un solo criterio o muy poco, resaltalo como una buena noticia ("estás cerca").
-- Nunca prometas aprobación, nunca des fechas ni cifras que no vengan de la herramienta, y no minimices ni exageres su situación.
-- Si el cliente pide mejorar su score o su situación, dá solo recomendaciones generales y responsables. No sugieras trucos ni atajos.
+Consultas sobre tarjetas de crédito:
+- Cuando el cliente pregunte si puede sacar una tarjeta, usá la herramienta evaluar_elegibilidad_tarjeta. Es la MISMA evaluación que aplica el banco al emitirla, así que lo que le digas es lo que va a pasar cuando la pida.
+- El banco tiene cuatro niveles: Standard, Gold, Platinum y Black. Cada uno trae su límite y sus beneficios. El cliente no elige el límite: lo define el nivel.
+- Para cada nivel, la herramienta dice si está disponible y, si no lo está, el motivo exacto con los números que le faltan. Usá ese motivo tal cual: no lo redondees ni lo suavices.
+- Si alcanza alguno: decíselo con claridad y calidez, nombrá el nivel más alto que puede pedir con su límite, y explicale que lo solicita desde la sección Tarjetas del portal.
+- Si no alcanza ninguno: decile de forma amable y directa que por ahora no, con el motivo concreto, y qué tendría que cambiar.
+- Si está cerca de un nivel más alto, resaltalo como una buena noticia.
+- Nunca prometas aprobación ni des cifras que no vengan de la herramienta.
+- Si el cliente pide mejorar su situación, dá solo recomendaciones generales y responsables. No sugieras trucos ni atajos.
 
 Privacidad y seguridad en estos temas:
 - Hablás únicamente de la situación del cliente autenticado. Si pide información de otra persona (un familiar, un tercero), explicale que por seguridad no podés compartirla.
@@ -70,23 +75,24 @@ const CREDIT_TOOLS = [{
   functionDeclarations: [
     {
       name: 'obtener_estado_crediticio',
-      description: 'Consulta el estado crediticio resumido del cliente autenticado. No acepta identificadores de usuario.',
+      description:
+        'Situación del cliente autenticado en la Central de Deudores del Banco Central y el saldo total de sus cuentas. No acepta identificadores de usuario.',
       parameters: { type: 'OBJECT', properties: {} },
     },
     {
       name: 'evaluar_elegibilidad_tarjeta',
-      description: 'Evalúa con reglas determinísticas si el cliente autenticado cumple los requisitos de una tarjeta.',
+      description:
+        'Los cuatro niveles de tarjeta de crédito del banco (standard, gold, platinum, black) con su límite, sus beneficios, y si el cliente autenticado los alcanza hoy. Es la misma evaluación que se aplica al emitir.',
       parameters: {
         type: 'OBJECT',
         properties: {
-          tipo_tarjeta: { type: 'STRING', description: 'Tipo configurado, por ejemplo tarjetaClasica. Si se omite, se evalúa tarjetaClasica.' },
+          nivel: { type: 'STRING', description: 'Un nivel puntual: standard, gold, platinum o black. Si se omite, se devuelven los cuatro.' },
         },
       },
     },
   ],
 }];
 
-const creditCardEligibilityService = createCreditCardEligibilityService();
 
 function normalizarHistorial(history) {
   return history.slice(-MAX_HISTORY_MESSAGES).map(({ role, content }) => ({
@@ -169,21 +175,10 @@ function detectarHerramientaForzada(message) {
   return null;
 }
 
-function detectarTipoTarjeta(message) {
-  const normalizedMessage = message.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const configuredType = Object.keys(creditCardRules).find((type) => {
-    if (!type.startsWith('tarjeta')) return false;
-    const typeName = type.slice('tarjeta'.length).toLowerCase();
-    return typeName && normalizedMessage.includes(typeName);
-  });
-  if (configuredType) return configuredType;
-
-  const requestedType = normalizedMessage.match(/\btarjetas?\s+(?:de\s+credito\s+)?([a-z][a-z0-9]*)\b/)?.[1];
-  const genericWords = new Set(['de', 'credito', 'debito', 'una', 'un', 'la', 'el', 'para', 'que', 'tipo', 'por', 'favor']);
-  if (requestedType && !genericWords.has(requestedType)) {
-    return `tarjeta${requestedType[0].toUpperCase()}${requestedType.slice(1)}`;
-  }
-  return 'tarjetaClasica';
+/** Si el cliente nombró un nivel ("¿llego a la Gold?"), cuál. */
+function detectarNivelPedido(message) {
+  const texto = message.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return NIVELES.find((n) => texto.includes(n.nivel))?.nivel || null;
 }
 
 function crearSolicitudGemini({ model, apiKey, geminiApi, contents, toolConfig }) {
@@ -213,37 +208,57 @@ function extraerTexto(candidato) {
     .trim();
 }
 
-async function ejecutarHerramientaCrediticia({ name, args, personaId, tipoTarjetaSolicitada, profileService, eligibilityService }) {
+const SITUACIONES = {
+  1: 'normal, sin atrasos',
+  2: 'con riesgo bajo: atrasos de hasta 90 días',
+  3: 'con riesgo medio: atrasos de hasta 180 días',
+  4: 'con riesgo alto: atrasos de más de un año',
+  5: 'irrecuperable',
+};
+
+async function ejecutarHerramientaCrediticia({ name, args, personaId, usuarioActual, nivelPedido, obtenerOferta }) {
   if (!personaId) return { error: 'Iniciá sesión desde el flujo normal del sitio o la app para consultar tus datos.' };
 
   try {
-    const profile = await profileService.obtenerPerfilCrediticio(personaId);
-    if (!profile) return { error: SAFE_CREDIT_FALLBACK };
+    // `obtenerOfertaDeNiveles` verifica que el usuario sea el dueño de esos
+    // datos, así que el asistente no puede ver los de otra persona ni aunque
+    // el modelo se lo pida.
+    const oferta = await obtenerOferta({ personaId, usuarioActual });
 
     if (name === 'obtener_estado_crediticio') {
-      const nivelEndeudamiento = profile.ingresoMensualNeto > 0
-        ? profile.deudaMensualTotal / profile.ingresoMensualNeto
-        : null;
       return {
-        situacionBcra: profile.situacionBcra,
-        scoreCrediticio: profile.scoreCrediticio,
-        nivelEndeudamiento,
-        deudaMensualTotal: profile.deudaMensualTotal,
-        ingresoMensualNeto: profile.ingresoMensualNeto,
-        fechaUltimaActualizacion: profile.fechaUltimaActualizacion,
-        datosSimulados: profile.datosSimulados === true,
+        situacion: oferta.situacion,
+        situacion_descripcion: oferta.situacion ? SITUACIONES[oferta.situacion] : null,
+        pudo_consultarse: oferta.situacion !== null,
+        saldo_total_pesos: oferta.patrimonio,
+        cotizacion_usada: oferta.cotizacion_usada,
+        nivel_maximo: oferta.nivel_maximo,
+        fuente: 'Central de Deudores del Banco Central y saldos de las cuentas del cliente',
       };
     }
 
     if (name === 'evaluar_elegibilidad_tarjeta') {
-      try {
-        return eligibilityService.evaluar(profile, tipoTarjetaSolicitada || args?.tipo_tarjeta || 'tarjetaClasica');
-      } catch (error) {
-        if (error.message?.startsWith('No existe una configuracion')) {
-          return { error: 'Ese tipo de tarjeta todavía no está configurado para evaluación. Consultá los tipos disponibles por los canales oficiales del banco.' };
-        }
-        throw error;
+      const pedido = nivelPedido || args?.nivel || null;
+      const niveles = pedido ? oferta.niveles.filter((n) => n.nivel === pedido) : oferta.niveles;
+
+      if (pedido && niveles.length === 0) {
+        return { error: `El banco no tiene un nivel llamado "${pedido}". Los niveles son: ${NIVELES.map((n) => n.nombre).join(', ')}.` };
       }
+
+      return {
+        nivel_maximo: oferta.nivel_maximo,
+        saldo_total_pesos: oferta.patrimonio,
+        situacion: oferta.situacion,
+        niveles: niveles.map((n) => ({
+          nivel: n.nivel,
+          nombre: n.nombre,
+          limite: n.limite,
+          beneficios: n.beneficios,
+          disponible: n.disponible,
+          // Por qué no lo alcanza, con los números concretos que le faltan.
+          motivo: n.motivo,
+        })),
+      };
     }
 
     return { error: 'La herramienta solicitada no está disponible.' };
@@ -257,8 +272,8 @@ function crearServicioChatbot({
   geminiApi = axios,
   apiKey = env.geminiApiKey,
   model = env.geminiModel,
-  creditProfile = creditProfileService,
-  creditEligibility = creditCardEligibilityService,
+  // Inyectable para los tests; en producción es la evaluación real del banco.
+  obtenerOferta = tarjetasService.obtenerOfertaDeNiveles,
 } = {}) {
   async function enviarMensaje({ message, history = [], usuarioActual }) {
     validarEntrada({ message, history });
@@ -297,7 +312,9 @@ function crearServicioChatbot({
     const safeCreditPrompt = forcedToolName === 'obtener_estado_crediticio'
       ? 'El cliente autenticado consulta su propio estado crediticio. Usá exclusivamente la herramienta correspondiente.'
       : forcedToolName
-        ? `El cliente autenticado consulta su propia elegibilidad para ${detectarTipoTarjeta(message)}. Usá exclusivamente la herramienta correspondiente.`
+        ? `El cliente autenticado consulta su propia elegibilidad para una tarjeta de crédito${
+            detectarNivelPedido(message) ? ` de nivel ${detectarNivelPedido(message)}` : ''
+          }. Usá exclusivamente la herramienta correspondiente.`
         : message.trim();
     const prompt = [
       'CONTEXTO AUTORIZADO (solo datos agregados del usuario autenticado):',
@@ -331,11 +348,11 @@ function crearServicioChatbot({
             name: call.name,
             args: call.args,
             personaId: usuarioActual.persona_id,
-            tipoTarjetaSolicitada: forcedToolName === 'evaluar_elegibilidad_tarjeta'
-              ? detectarTipoTarjeta(message)
-              : undefined,
-            profileService: creditProfile,
-            eligibilityService: creditEligibility,
+            usuarioActual,
+            nivelPedido: forcedToolName === 'evaluar_elegibilidad_tarjeta'
+              ? detectarNivelPedido(message)
+              : null,
+            obtenerOferta,
           });
           if (result.error) {
             logger.info({ personaId: usuarioActual.persona_id, evento: `chatbot_${call.name}_sin_datos` }, 'chatbot credit tool event');
