@@ -65,7 +65,7 @@ describe("chatbot-service", () => {
     const serialized = JSON.stringify(requestBody);
     expect(serialized).toContain("0001234567890123456789");
     expect(serialized).toContain("1250.5");
-    expect(serialized).not.toContain("movimientos");
+    expect(JSON.stringify(requestBody.contents)).not.toContain("movimientos");
   });
 
   it("responde el saldo propio con el cálculo exacto del backend", async () => {

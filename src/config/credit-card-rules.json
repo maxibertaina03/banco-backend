@@ -1,0 +1,15 @@
+{
+  "temporal": true,
+  "nota": "Reglas provisorias de demostracion. Reemplazar con criterios aprobados por Banco Orbital.",
+  "tarjetaClasica": {
+    "edadMinima": 18,
+    "situacionBcraMaxima": 1,
+    "scoreMinimo": 600,
+    "ingresoMinimoMensual": 400000,
+    "antiguedadClienteMinimaMeses": 3,
+    "antiguedadLaboralMinimaMeses": 6,
+    "relacionCuotaIngresoMaxima": 0.35,
+    "diasMoraMaximaPermitida": 0,
+    "chequesRechazadosMaximos": 0
+  }
+}

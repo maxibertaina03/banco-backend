@@ -11,7 +11,7 @@ async function clerkAuth(req, res, next) {
   const token = extractToken(req);
 
   if (!token) {
-    return next(new HttpError(401, 'Token no proporcionado.'));
+    return next(new HttpError(401, 'Iniciá sesión desde el flujo normal del sitio o la app para usar esta función.'));
   }
 
   try {

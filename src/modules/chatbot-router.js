@@ -8,6 +8,14 @@ const { MAX_HISTORY_MESSAGES, MAX_MESSAGE_LENGTH, crearServicioChatbot } = requi
 
 const router = express.Router();
 const service = crearServicioChatbot();
+const userChatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => String(req.usuarioActual?.id || req.usuarioActual?.persona_id || 'authenticated-user'),
+  message: { error: 'Alcanzaste el límite de consultas del asistente por minuto. Intentá nuevamente en un minuto.' },
+});
 const chatbotLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
@@ -28,6 +36,7 @@ const messageSchema = z.object({
 
 router.post(
   '/message',
+  userChatLimiter,
   chatbotLimiter,
   validate(messageSchema),
   asyncHandler(async (req, res) => {
@@ -35,7 +44,7 @@ router.post(
     // volver a buscarlo por `req.clerkUserId` no sólo repetía la consulta, esa
     // propiedad no la setea ningún middleware y el endpoint respondía 403 siempre.
     if (!req.usuarioActual?.persona_id) {
-      throw new HttpError(403, 'No existe un perfil bancario activo para este usuario.');
+      throw new HttpError(401, 'Iniciá sesión desde el flujo normal del sitio o la app para usar esta función.');
     }
 
     const reply = await service.enviarMensaje({ ...req.body, usuarioActual: req.usuarioActual });
