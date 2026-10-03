@@ -6,7 +6,7 @@ pero la **estructura de la base** y las **migraciones** se gestionan con Prisma.
 
 ## Archivos
 
-- `schema.prisma` — el modelo de datos (12 tablas). Editás esto para cambiar el schema.
+- `schema.prisma` — el modelo de datos (13 tablas). Editás esto para cambiar el schema.
 - `migrations/0_init/` — baseline: todas las tablas, FKs, índices y uniques que Prisma maneja.
 - `migrations/1_security_hardening/` — capa que **Prisma no sabe modelar**: RLS, políticas,
   CHECK constraints e índices parciales. Derivada de las migraciones legacy ya testeadas en prod.

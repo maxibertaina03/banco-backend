@@ -6,12 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  // IMPORTANTE (Supabase): para correr migraciones (`prisma migrate` / baseline)
-  // DATABASE_URL debe apuntar a la conexión DIRECTA (puerto 5432). El pooler de
-  // transacciones (6543) NO soporta las operaciones de migración. La app sí puede
-  // usar el pooler. Ver prisma/README.md.
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ============================================================
@@ -139,6 +136,7 @@ model Cuenta {
 
   transaccionesOrigen Transaccion[] @relation("origen")
   transaccionesDestino Transaccion[] @relation("destino")
+  cobrosDestino         Cobro[]
 
   @@index([personaId])
   @@index([tipoCuentaId])
@@ -221,6 +219,7 @@ model Transaccion {
   tipoTransaccion TipoTransaccion @relation(fields: [tipoTransaccionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   cuentaOrigen    Cuenta?         @relation("origen", fields: [cuentaOrigenId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   cuentaDestino   Cuenta?         @relation("destino", fields: [cuentaDestinoId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cobro            Cobro?
 
   @@index([tipoTransaccionId])
   @@index([cuentaOrigenId])
@@ -231,6 +230,27 @@ model Transaccion {
   @@index([cbuDestino])
   @@index([createdAt])
   @@map("transacciones")
+}
+
+// ============================================================
+// COBROS POR QR
+// ============================================================
+model Cobro {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cuentaDestinoId  String    @map("cuenta_destino_id") @db.Uuid
+  monto            Decimal   @db.Decimal(14, 2)
+  estado           String    @default("pendiente")
+  expiraAt         DateTime  @map("expira_at") @db.Timestamptz(6)
+  creadoAt         DateTime  @default(now()) @map("creado_at") @db.Timestamptz(6)
+  pagadoAt         DateTime? @map("pagado_at") @db.Timestamptz(6)
+  transferenciaId String?   @unique @map("transferencia_id") @db.Uuid
+
+  cuentaDestino Cuenta        @relation(fields: [cuentaDestinoId], references: [id], onDelete: NoAction)
+  transferencia Transaccion?  @relation(fields: [transferenciaId], references: [id], onDelete: NoAction)
+
+  @@index([cuentaDestinoId, estado])
+  @@index([expiraAt])
+  @@map("cobros")
 }
 
 // ============================================================

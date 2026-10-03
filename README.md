@@ -90,6 +90,7 @@ LOG_LEVEL=debug                    # debug | info | warn | error (default info e
 DATABASE_URL=postgresql://...      # connection string completa de Supabase
 
 # Auth (Clerk)
+CLERK_PUBLISHABLE_KEY=pk_test_...     # clave pública de la misma instancia que usa el frontend
 CLERK_SECRET_KEY=sk_...            # del dashboard de Clerk
 CLERK_WEBHOOK_SIGNING_SECRET=whsec_...
 
@@ -220,6 +221,31 @@ banco-backend/
 | POST | `/api/transacciones/deposito` | **Depósito en efectivo** (solo admin/operador/tesoreria) |
 | GET  | `/api/transacciones/destinatario/resolver?alias=…` o `?cbu=…` | Lookup en Brocoly con caché TTL 60s |
 | POST | `/api/transacciones/sync-incoming` | Trae las transferencias entrantes desde Brocoly |
+
+### Cobros por QR
+
+| Método | Path | Descripción |
+|---|---|---|
+| POST | `/api/cobros` | Crea un QR pendiente por 10 minutos. Body: `{ "monto": 1250.50 }` |
+| GET | `/api/cobros/:id` | Consulta el nombre, monto, estado y vencimiento del cobro |
+| POST | `/api/transferencias` | Paga el cobro. Body: `{ "cobro_id": "UUID" }`; requiere `Idempotency-Key` UUID |
+
+El banco resuelve la cuenta principal activa en ARS desde el usuario autenticado
+para el origen y el destino. No acepta identificadores de usuario o cuenta del
+cliente, ni toma importe o titular del QR. La transferencia debita, acredita,
+registra el movimiento y marca el cobro como pagado en una sola transacción
+PostgreSQL. Una segunda cuenta principal activa se rechaza hasta corregir los
+datos de cuenta.
+
+La migración `prisma/migrations/2_qr_collections/migration.sql` está preparada,
+pero no aplicada. Revisala y ejecutala primero en Supabase; después desplegá el
+backend y el frontend. Los endpoints nuevos usan Clerk Express y reverificación
+estricta de Clerk para confirmar el pago. En producción, limitá `CORS_ORIGINS`
+a `https://app.orbital.net.ar`.
+
+Las rutas QR usan `clerkMiddleware()` y requieren `CLERK_PUBLISHABLE_KEY` en el
+entorno del backend, además de `CLERK_SECRET_KEY`. Ambas claves deben pertenecer
+a la misma instancia de Clerk; en desarrollo, usá la `pk_test_...` del frontend.
 
 ### Destinatarios (agenda)
 

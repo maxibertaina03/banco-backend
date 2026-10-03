@@ -1,10 +1,13 @@
 const pool = require('../db/pool');
+const { getAuth } = require('@clerk/express');
 const HttpError = require('../utils/http-error');
 const { extraerIdUsuarioDeClerk } = require('./clerk-auth');
 const authService = require('../modules/auth-service');
 
 async function requireActiveUser(req, _res, next) {
-  const clerkId = extraerIdUsuarioDeClerk(req.auth);
+  const clerkId = typeof req.auth === 'function'
+    ? getAuth(req).userId
+    : extraerIdUsuarioDeClerk(req.auth);
 
   if (!clerkId) {
     return next(new HttpError(401, 'No se pudo identificar al usuario autenticado.'));

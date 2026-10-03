@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const pinoHttp = require('pino-http');
 const routes = require('./routes');
+const cobrosRouter = require('./modules/cobros-router');
 const authRouter = require('./modules/auth-router');
 const clerkWebhookRouter = require('./modules/clerk-webhook-router');
 const { clerkAuth } = require('./middlewares/clerk-auth');
@@ -125,6 +126,8 @@ app.get('/api/health', asyncHandler(async (_req, res) => {
 app.use('/auth', authLimiter, authRouter);
 
 // ── API protegida ─────────────────────────────────────────────────────────────
+app.use('/api/cobros', cobrosRouter.cobros);
+app.use('/api/transferencias', cobrosRouter.transferencias);
 app.use('/api', clerkAuth, requireActiveUser, requerirPerfilCompleto, routes);
 
 app.use(notFound);
