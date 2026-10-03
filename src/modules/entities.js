@@ -36,6 +36,11 @@ const internalOnly = [requerirRoles(['admin', 'operador', 'tesoreria'])];
 // banco; lo que no puede es modificarlos.
 const internalRead = [requerirRoles(['admin', 'operador', 'tesoreria', 'auditor'])];
 
+// Repartir roles es dar permisos, así que lo hace sólo el admin. Con el permiso
+// interno común, un operador podía asignarse a sí mismo el rol de admin y
+// quedarse con el banco entero.
+const adminOnly = [requerirRoles(['admin'], 'Sólo un administrador puede asignar o quitar roles.')];
+
 const entities = {
   personas: {
     table: 'personas',
@@ -75,9 +80,9 @@ const entities = {
     access: {
       list: internalRead,
       get: internalRead,
-      create: internalOnly,
-      update: internalOnly,
-      delete: internalOnly,
+      create: adminOnly,
+      update: adminOnly,
+      delete: adminOnly,
     },
   },
   personas_roles: {
@@ -94,9 +99,9 @@ const entities = {
     access: {
       list: internalRead,
       get: internalRead,
-      create: internalOnly,
-      update: internalOnly,
-      delete: internalOnly,
+      create: adminOnly,
+      update: adminOnly,
+      delete: adminOnly,
     },
   },
   usuarios: {
