@@ -9,6 +9,7 @@ const createIdempotency = require('../middlewares/idempotency');
 const asyncHandler = require('../utils/async-handler');
 const HttpError = require('../utils/http-error');
 const requerirPerfilCompleto = require('../middlewares/require-complete-profile');
+const { Dinero } = require('../utils/dinero');
 
 const MAX_QR_AMOUNT = 1_000_000;
 const RATE_LIMIT = rateLimit({
@@ -293,6 +294,23 @@ function crearRouter() {
         }
         if (!origen.activa || !destino.activa || origen.moneda !== 'ARS' || destino.moneda !== 'ARS') {
           throw new HttpError(400, 'Las cuentas del cobro no están disponibles para operar en pesos.');
+        }
+
+        // El límite de la cuenta también rige acá.
+        //
+        // Una transferencia común pasa por `validarLimiteDeTransferencia`, que
+        // compara el monto contra el `limite_transferencia` del tipo de cuenta
+        // (hoy, Caja de Ahorro: $500.000). Este camino no lo hacía: su único
+        // tope era el MAX_QR_AMOUNT de arriba, que es un millón. Pagando por QR
+        // se movía el doble de lo que el banco permite por el formulario de
+        // siempre.
+        const tipoDeCuenta = await client.query(
+          'SELECT limite_transferencia FROM tipos_cuenta WHERE id = $1',
+          [origen.tipo_cuenta_id]
+        );
+        const limite = Dinero.desdeOpcional(tipoDeCuenta.rows[0]?.limite_transferencia);
+        if (limite !== null && Dinero.desde(cobro.monto).mayorQue(limite)) {
+          throw new HttpError(400, 'El monto supera el límite de transferencia permitido para la cuenta.');
         }
         const tipo = await client.query("SELECT id FROM tipos_transaccion WHERE lower(nombre) = 'transferencia' LIMIT 1");
         if (!tipo.rows[0]) throw new HttpError(500, 'No está configurado el tipo de transacción transferencia.');
