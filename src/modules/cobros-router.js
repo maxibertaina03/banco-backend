@@ -144,6 +144,24 @@ function crearRouter() {
           );
         }
 
+        // No dejar generar un QR que después nadie va a poder pagar.
+        //
+        // El límite de transferencia es de la cuenta que PAGA, así que recién
+        // saltaba al confirmar: el cobrador armaba un QR de $800.000, se lo
+        // mostraba al otro, y el otro se comía el error. Acá se compara contra
+        // el límite más alto que exista configurado: si ni la cuenta más
+        // holgada del banco puede pagarlo, el QR no sirve para nadie.
+        const techo = await client.query(
+          'SELECT MAX(limite_transferencia) AS maximo FROM tipos_cuenta WHERE limite_transferencia IS NOT NULL'
+        );
+        const maximoPagable = Dinero.desdeOpcional(techo.rows[0]?.maximo);
+        if (maximoPagable !== null && Dinero.desde(monto).mayorQue(maximoPagable)) {
+          throw new HttpError(
+            400,
+            `El monto máximo que se puede cobrar por QR es ${maximoPagable.aNumero().toLocaleString('es-AR', { style: 'currency', currency: 'ARS' })}, que es el límite de transferencia más alto del banco.`
+          );
+        }
+
         const creado = await client.query(
           `INSERT INTO cobros (cuenta_destino_id, monto, estado, expira_at)
            VALUES ($1, $2::numeric(14,2), 'pendiente', NOW() + INTERVAL '10 minutes')

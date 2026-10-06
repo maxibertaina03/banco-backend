@@ -3,6 +3,7 @@ const env = require('./config/env');
 const pool = require('./db/pool');
 const logger = require('./utils/logger');
 const { iniciarSincronizadorEntrantes } = require('./modules/sincronizador-entrantes');
+const { iniciarVencedorDeCobros } = require('./modules/vencedor-de-cobros');
 
 async function startServer() {
   await pool.query('SELECT 1');
@@ -11,11 +12,16 @@ async function startServer() {
     logger.info({ port: env.port, env: env.nodeEnv }, 'API bancaria escuchando');
   });
 
-  // Transferencias de otros bancos, de fondo. SINCRONIZAR_ENTRANTES=false lo
-  // apaga (por ejemplo, para correr un segundo backend contra la misma base).
+  // Las tareas de fondo. SINCRONIZAR_ENTRANTES=false las apaga todas: si
+  // algún día hay dos backends contra la misma base, alcanza con que uno traiga
+  // las transferencias de otros bancos y venza los QR.
   if (process.env.SINCRONIZAR_ENTRANTES !== 'false') {
     iniciarSincronizadorEntrantes();
-    logger.info({ subsystem: 'sincronizador' }, 'sincronización de entrantes activa cada 15 minutos');
+    iniciarVencedorDeCobros();
+    logger.info(
+      { subsystem: 'tareas' },
+      'tareas de fondo activas: entrantes cada 15 minutos, vencimiento de QR cada 10'
+    );
   }
 
   configurarApagadoOrdenado(server);

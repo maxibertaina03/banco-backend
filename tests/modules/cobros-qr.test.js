@@ -83,8 +83,20 @@ function armarBase({ montoDelCobro, limiteDeTransferencia, estadoDelCobro = 'pen
         rows: [cuenta(CUENTA_PAGADOR, PERSONA_PAGADOR), cuenta(CUENTA_COBRADOR, 'persona-cobra')],
       };
     }
+    if (/MAX\(limite_transferencia\)/i.test(sql)) {
+      return { rowCount: 1, rows: [{ maximo: limiteDeTransferencia }] };
+    }
     if (/FROM tipos_cuenta/i.test(sql)) {
       return { rowCount: 1, rows: [{ limite_transferencia: limiteDeTransferencia }] };
+    }
+    if (/FROM cuentas c WHERE c.persona_id/i.test(sql) || /SELECT c.id, c.persona_id/i.test(sql)) {
+      return { rowCount: 1, rows: [{ id: CUENTA_COBRADOR, persona_id: 'persona-cobra' }] };
+    }
+    if (/INSERT INTO cobros/i.test(sql)) {
+      return {
+        rowCount: 1,
+        rows: [{ id: 'cobro-1', monto: params[1], estado: 'pendiente', expira_at: new Date().toISOString(), creado_at: new Date().toISOString() }],
+      };
     }
     if (/FROM tipos_transaccion/i.test(sql)) return { rowCount: 1, rows: [{ id: 'tipo-transferencia' }] };
     if (/UPDATE cuentas SET saldo = saldo -/i.test(sql)) return { rowCount: 1, rows: [{ id: CUENTA_PAGADOR }] };
@@ -144,6 +156,22 @@ async function pagar(app, { clave = randomUUID() } = {}) {
     server.close();
   }
 }
+
+async function crearCobro(app, monto) {
+  const server = app.listen(0);
+  try {
+    const r = await fetch(`http://127.0.0.1:${server.address().port}/api/cobros`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ monto }),
+    });
+    return { status: r.status, body: await r.json() };
+  } finally {
+    server.close();
+  }
+}
+
+const seCreoElCobro = (ejecutadas) => ejecutadas.some((q) => /INSERT INTO cobros/i.test(q.sql));
 
 const seDebito = (ejecutadas) => ejecutadas.some((q) => /UPDATE cuentas SET saldo = saldo -/i.test(q.sql));
 
@@ -209,5 +237,35 @@ describe('pago de un cobro por QR', () => {
       server.close();
     }
     expect(seDebito(base.ejecutadas)).toBe(false);
+  });
+
+  // ── Generar el QR ────────────────────────────────────────────────────────
+
+  it('no deja generar un QR que después nadie va a poder pagar', async () => {
+    // El límite de transferencia es de la cuenta que PAGA, así que antes esto
+    // recién saltaba al confirmar: el cobrador armaba el QR, se lo mostraba al
+    // otro, y el otro se comía el error.
+    const base = armarBase({ montoDelCobro: '0', limiteDeTransferencia: '500000.00' });
+    const { status, body } = await crearCobro(montarRouter(base), 800000);
+
+    expect(status).toBe(400);
+    expect(body.error).toMatch(/máximo que se puede cobrar por QR/i);
+    expect(seCreoElCobro(base.ejecutadas)).toBe(false);
+  });
+
+  it('deja generar hasta el límite más alto del banco', async () => {
+    const base = armarBase({ montoDelCobro: '0', limiteDeTransferencia: '500000.00' });
+    const { status } = await crearCobro(montarRouter(base), 500000);
+
+    expect(status).toBe(201);
+    expect(seCreoElCobro(base.ejecutadas)).toBe(true);
+  });
+
+  it('sin ningún límite configurado, no inventa un techo', async () => {
+    const base = armarBase({ montoDelCobro: '0', limiteDeTransferencia: null });
+    const { status } = await crearCobro(montarRouter(base), 900000);
+
+    expect(status).toBe(201);
+    expect(seCreoElCobro(base.ejecutadas)).toBe(true);
   });
 });
