@@ -27,7 +27,13 @@ async function list(entityConfig, queryParams = {}) {
   const offset = (page - 1) * limit;
 
   const { clauses, values } = buildFilters(entityConfig.allowedFilters, queryParams);
-  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+  // `condicionFija`: un fragmento SQL sin parámetros que la entidad declara y
+  // que siempre se aplica. Hoy lo usa `personas` para que las de prueba no
+  // aparezcan en los listados del personal del banco. Va aparte de los
+  // `allowedFilters` justamente porque no se puede desactivar desde la query.
+  const todas = entityConfig.condicionFija ? [entityConfig.condicionFija, ...clauses] : clauses;
+  const where = todas.length > 0 ? `WHERE ${todas.join(' AND ')}` : '';
 
   const result = await pool.query({
     text: `SELECT ${entityConfig.select} FROM ${entityConfig.table} ${where} ORDER BY ${entityConfig.orderBy} LIMIT $${

@@ -4,6 +4,7 @@ const pool = require('./db/pool');
 const logger = require('./utils/logger');
 const { iniciarSincronizadorEntrantes } = require('./modules/sincronizador-entrantes');
 const { iniciarVencedorDeCobros } = require('./modules/vencedor-de-cobros');
+const { iniciarLimpiadorDeDemos } = require('./modules/limpiador-de-demos');
 
 async function startServer() {
   await pool.query('SELECT 1');
@@ -18,9 +19,10 @@ async function startServer() {
   if (process.env.SINCRONIZAR_ENTRANTES !== 'false') {
     iniciarSincronizadorEntrantes();
     iniciarVencedorDeCobros();
+    iniciarLimpiadorDeDemos();
     logger.info(
       { subsystem: 'tareas' },
-      'tareas de fondo activas: entrantes cada 15 minutos, vencimiento de QR cada 10'
+      'tareas de fondo activas: entrantes cada 15 minutos, vencimiento de QR y limpieza de sesiones de prueba cada 10'
     );
   }
 

@@ -22,7 +22,7 @@ function seleccionarIdTipoDeposito(executor) {
 /** Cuenta local + titular por id, con FOR UPDATE (bloquea la fila). */
 function seleccionarCuentaPorIdParaActualizar(executor, idCuenta) {
   return executor.query(
-    `SELECT c.*, p.nombre, p.apellido
+    `SELECT c.*, p.nombre, p.apellido, p.es_demo
        FROM cuentas c
        JOIN personas p ON p.id = c.persona_id
        WHERE c.id = $1
@@ -34,7 +34,7 @@ function seleccionarCuentaPorIdParaActualizar(executor, idCuenta) {
 /** Cuenta local + titular por CBU, con FOR UPDATE (bloquea la fila). */
 function seleccionarCuentaPorCbuParaActualizar(executor, cbu) {
   return executor.query(
-    `SELECT c.*, p.nombre, p.apellido
+    `SELECT c.*, p.nombre, p.apellido, p.es_demo
        FROM cuentas c
        JOIN personas p ON p.id = c.persona_id
        WHERE c.cbu = $1

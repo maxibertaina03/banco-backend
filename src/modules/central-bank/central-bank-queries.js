@@ -42,6 +42,7 @@ function seleccionarCuentasASincronizar(executor, safeLimit) {
      FROM cuentas c
      JOIN personas p ON p.id = c.persona_id
      JOIN tipos_cuenta tc ON tc.id = c.tipo_cuenta_id
+     WHERE p.es_demo = FALSE
      ORDER BY c.created_at DESC
      LIMIT $1`,
     [safeLimit]
@@ -231,14 +232,22 @@ function resultadoSincronizacionCuenta(executor, { cbu, alias, idCuenta }) {
 /** Cuentas activas que matcheen alguno de los CBUs dados. */
 function seleccionarCuentasActivasPorCbus(executor, cbus) {
   return executor.query(
-    'SELECT id, cbu, moneda FROM cuentas WHERE cbu = ANY($1::text[]) AND activa = TRUE',
+    `SELECT c.id, c.cbu, c.moneda FROM cuentas c
+       JOIN personas p ON p.id = c.persona_id
+      WHERE c.cbu = ANY($1::text[]) AND c.activa = TRUE AND p.es_demo = FALSE`,
     [cbus]
   );
 }
 
 /** Todas las cuentas activas con CBU. */
 function seleccionarCuentasActivasConCbu(executor) {
-  return executor.query('SELECT id, cbu, moneda FROM cuentas WHERE cbu IS NOT NULL AND activa = TRUE');
+  // `es_demo = FALSE`: las cuentas de prueba tienen CBU inventados y
+  // preguntarle por ellos al Banco Central es ensuciar un sistema compartido.
+  return executor.query(
+    `SELECT c.id, c.cbu, c.moneda FROM cuentas c
+       JOIN personas p ON p.id = c.persona_id
+      WHERE c.cbu IS NOT NULL AND c.activa = TRUE AND p.es_demo = FALSE`
+  );
 }
 
 /** IDs de transacciones entrantes ya registradas (para deduplicar). */

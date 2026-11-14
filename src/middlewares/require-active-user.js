@@ -15,7 +15,7 @@ async function requireActiveUser(req, _res, next) {
 
   try {
     let result = await pool.query(
-      `SELECT u.*, p.nombre, p.apellido, p.email, p.perfil_completo
+      `SELECT u.*, p.nombre, p.apellido, p.email, p.perfil_completo, p.es_demo
        FROM usuarios u
        JOIN personas p ON p.id = u.persona_id
        WHERE u.clerk_id = $1 AND u.activo = true`,
@@ -26,7 +26,7 @@ async function requireActiveUser(req, _res, next) {
       await authService.obtenerOCrearUsuario(clerkId);
 
       result = await pool.query(
-        `SELECT u.*, p.nombre, p.apellido, p.email, p.perfil_completo
+        `SELECT u.*, p.nombre, p.apellido, p.email, p.perfil_completo, p.es_demo
          FROM usuarios u
          JOIN personas p ON p.id = u.persona_id
          WHERE u.clerk_id = $1 AND u.activo = true`,

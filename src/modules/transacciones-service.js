@@ -11,6 +11,7 @@
 
 const realPool = require('../db/pool');
 const realCentralBankService = require('./central-bank-service');
+const { crearSelectorDeCentral } = require('./el-central');
 const { escribirLogDeAuditoria: realWriteAuditLog } = require('../utils/audit');
 const HttpError = require('../utils/http-error');
 const { esUsuarioInterno } = require('../utils/access-control');
@@ -26,6 +27,11 @@ function createTransaccionesService({
   mercado = realMercado,
   pool = realPool,
   centralBankService = realCentralBankService,
+  // Qué Banco Central le toca a cada operación. Las sesiones demo van contra
+  // uno simulado para no impactar el ambiente compartido del curso; ver
+  // `el-central.js`. Se construye con el `centralBankService` de arriba, así un
+  // test que inyecta un doble lo sigue viendo para las operaciones normales.
+  elCentral = crearSelectorDeCentral({ real: centralBankService }),
   escribirLogDeAuditoria = realWriteAuditLog,
   resolverCacheTtlMs = 60_000,
   resolverCacheMaxEntries = 500,
@@ -42,17 +48,18 @@ function createTransaccionesService({
    * código del banco en el Central (006 somos nosotros, 008 Tree Bank...).
    * Si el Central no responde, devuelve null: no es motivo para romper nada.
    */
-  async function nombreDeBancoDeCbu(cbu) {
+  async function nombreDeBancoDeCbu(cbu, usuarioActual) {
     const codigo = Number(String(cbu || '').slice(0, 3));
     if (!Number.isInteger(codigo) || codigo <= 0) return null;
 
     // La cache devuelve null cuando no tiene la clave: por eso sólo se guardan
-    // nombres encontrados, y un null siempre vuelve a preguntar.
+    // nombres encontrados, y un null siempre vuelve a preguntar. Los nombres de
+    // banco no se separan por demo: son públicos y los mismos para todos.
     const enCache = cacheBancos.get(codigo);
     if (enCache) return enCache;
 
     try {
-      const banco = await centralBankService.getBankByCode(codigo);
+      const banco = await elCentral(usuarioActual).getBankByCode(codigo);
       const nombre = banco?.name || banco?.nombre || null;
       if (nombre) cacheBancos.set(codigo, nombre);
       return nombre;
@@ -134,7 +141,7 @@ function createTransaccionesService({
     // `moneda` y movería el importe tal cual entre una caja en pesos y una en
     // dólares. La validación es nuestra. Va antes de tocar saldos y antes de
     // llamar al Central, para que una transferencia inválida no llegue a existir.
-    await monedas.validarMonedasCompatibles(origin.moneda, destination.cbu, undefined);
+    await monedas.validarMonedasCompatibles(origin.moneda, destination.cbu, undefined, usuarioActual);
 
     await validarLimiteDeTransferencia(client, origin, importeExacto);
 
@@ -149,6 +156,19 @@ function createTransaccionesService({
       ? await obtenerCuentaLocalPorId(client, destination.idCuentaLocal)
       : await obtenerCuentaLocalPorCbu(client, destination.cbu);
 
+    // Los dos mundos no se tocan.
+    //
+    // Sin esto, un visitante que tipea el CBU de un cliente real le acreditaría
+    // plata DE VERDAD —que es exactamente lo que la consigna prohíbe—, y un
+    // cliente real que le transfiere a una cuenta de prueba perdería la plata
+    // cuando esa sesión se borre. En los dos casos la cuenta de la otra orilla
+    // se trata como si no existiera acá: la transferencia sale por el camino
+    // interbancario, que para el demo es simulado y para el real va al Central
+    // y rebota si el CBU no existe allá.
+    if (localDestination && Boolean(localDestination.es_demo) !== Boolean(usuarioActual?.es_demo)) {
+      localDestination = null;
+    }
+
     if (localDestination && !localDestination.activa) {
       throw new HttpError(400, 'La cuenta de destino no está activa.');
     }
@@ -159,7 +179,7 @@ function createTransaccionesService({
     let transferenciaDelCentral = null;
 
     try {
-      const centralResponse = await centralBankService.crearTransaccion(
+      const centralResponse = await elCentral(usuarioActual).crearTransaccion(
         {
           cbuOrigen: origin.cbu,
           cbuDestino: effectiveDestinationCbu,
@@ -272,17 +292,24 @@ function createTransaccionesService({
     return result.rows[0];
   }
 
-  async function resolverDestinatario({ alias, cbu }) {
+  async function resolverDestinatario({ alias, cbu, usuarioActual }) {
     const normalizedAlias = typeof alias === 'string' ? alias.trim() : null;
     const normalizedCbu = typeof cbu === 'string' ? cbu.trim() : null;
-    const cacheKey = normalizedAlias ? `alias:${normalizedAlias}` : `cbu:${normalizedCbu}`;
+    // El prefijo `demo:` separa las dos cachés. Sin él, un visitante que
+    // resuelve un CBU inventado deja la respuesta simulada servida para el
+    // próximo cliente real que pregunte por el mismo CBU, y al revés.
+    const prefijo = usuarioActual?.es_demo ? 'demo:' : '';
+    const cacheKey = normalizedAlias
+      ? `${prefijo}alias:${normalizedAlias}`
+      : `${prefijo}cbu:${normalizedCbu}`;
 
     const cached = resolverCache.get(cacheKey);
     if (cached) return cached;
 
+    const central = elCentral(usuarioActual);
     const centralData = normalizedAlias
-      ? await centralBankService.findPersonByAlias(normalizedAlias)
-      : await centralBankService.findPersonByCbu(normalizedCbu);
+      ? await central.findPersonByAlias(normalizedAlias)
+      : await central.findPersonByCbu(normalizedCbu);
 
     const response = {
       alias: findStringInPayload(centralData, ['alias']) || normalizedAlias || null,
@@ -294,7 +321,7 @@ function createTransaccionesService({
     // El Central devuelve sólo el código del banco: se busca el nombre para que
     // el formulario muestre a qué banco va la plata antes de confirmar.
     if (!response.banco) {
-      response.banco = await nombreDeBancoDeCbu(response.cbu);
+      response.banco = await nombreDeBancoDeCbu(response.cbu, usuarioActual);
     }
 
     resolverCache.set(cacheKey, response);
@@ -505,6 +532,14 @@ function createTransaccionesService({
   async function syncIncomingForUser(usuarioActual) {
     if (!usuarioActual?.persona_id) {
       throw new HttpError(400, 'No se pudo determinar la persona asociada a tu usuario.');
+    }
+
+    // Una sesión demo no tiene transferencias entrantes que traer del Central:
+    // sus CBU son inventados y nadie de afuera le mandó nada. Las entrantes que
+    // el visitante ve son las que siembra el demo y las que simula
+    // `POST /api/demo/entrante`.
+    if (usuarioActual.es_demo) {
+      return { processed: 0, synced: 0, already_recorded: 0, errors: 0, results: [] };
     }
 
     const cbuResult = await q.selectActiveCbusForPersona(pool, usuarioActual.persona_id);

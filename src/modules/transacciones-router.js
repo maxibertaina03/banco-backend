@@ -104,6 +104,7 @@ router.get(
     const response = await service.resolverDestinatario({
       alias: req.query.alias,
       cbu: req.query.cbu,
+      usuarioActual: req.usuarioActual,
     });
     res.json(response);
   })

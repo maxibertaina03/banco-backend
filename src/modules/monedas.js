@@ -18,11 +18,16 @@ const HttpError = require('../utils/http-error');
 const realCentralBankService = require('./central-bank-service');
 const realLogger = require('../utils/logger');
 const { createTTLCache } = require('../utils/ttl-cache');
+const { crearSelectorDeCentral } = require('./el-central');
 
 const MONEDA_POR_DEFECTO = 'ARS';
 
 function createMonedas({
   centralBankService = realCentralBankService,
+  // Las sesiones demo consultan un Central simulado; ver `el-central.js`. Se
+  // construye con el `centralBankService` de arriba para no romper la
+  // inyección que usan los tests.
+  elCentral = crearSelectorDeCentral({ real: centralBankService }),
   logger = realLogger,
   // La moneda de un CBU no cambia nunca, así que se puede cachear con holgura.
   // 500 entradas y 30 minutos alcanzan para una tanda de transferencias sin
@@ -36,16 +41,19 @@ function createMonedas({
    * llama decide si eso alcanza para seguir. Se prefiere no romper la
    * transferencia por una consulta accesoria.
    */
-  async function resolverMonedaDeCbu(cbu, environment) {
+  async function resolverMonedaDeCbu(cbu, environment, usuarioActual) {
     if (!cbu) return null;
 
-    const cacheada = cache.get(cbu);
+    // Igual que en `resolverDestinatario`: la caché se separa para que la
+    // respuesta simulada de un visitante no se le sirva a un cliente real.
+    const claveCache = usuarioActual?.es_demo ? `demo:${cbu}` : cbu;
+    const cacheada = cache.get(claveCache);
     if (cacheada) return cacheada;
 
     try {
-      const cuenta = await centralBankService.buscarCuentaPorCbu(cbu, environment);
+      const cuenta = await elCentral(usuarioActual).buscarCuentaPorCbu(cbu, environment);
       const moneda = cuenta?.moneda || null;
-      if (moneda) cache.set(cbu, moneda);
+      if (moneda) cache.set(claveCache, moneda);
       return moneda;
     } catch (error) {
       // 404 es una respuesta legítima: el CBU no existe en el Central. No es un
@@ -70,9 +78,9 @@ function createMonedas({
    * @param {string} monedaOrigen  Moneda de la cuenta local de origen, que siempre conocemos.
    * @param {string} cbuDestino
    */
-  async function validarMonedasCompatibles(monedaOrigen, cbuDestino, environment) {
+  async function validarMonedasCompatibles(monedaOrigen, cbuDestino, environment, usuarioActual) {
     const origen = monedaOrigen || MONEDA_POR_DEFECTO;
-    const destino = await resolverMonedaDeCbu(cbuDestino, environment);
+    const destino = await resolverMonedaDeCbu(cbuDestino, environment, usuarioActual);
 
     if (destino === null) {
       logger.warn(

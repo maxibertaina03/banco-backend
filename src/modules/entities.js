@@ -47,6 +47,10 @@ const entities = {
     orderBy: 'created_at DESC',
     select: '*',
     allowedFilters: ['dni', 'email'],
+    // Las personas de prueba existen en esta misma tabla, pero no son clientes
+    // del banco: no tienen por qué aparecer en el listado del personal, ni en
+    // el selector de persona del panel, ni contarse como altas.
+    condicionFija: 'es_demo = FALSE',
     dto: aPersonaPublica,
     inputDto: normalizePersonaInput,
     createSchema: z.object({

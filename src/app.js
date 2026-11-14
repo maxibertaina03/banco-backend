@@ -5,10 +5,10 @@ const rateLimit = require('express-rate-limit');
 const pinoHttp = require('pino-http');
 const routes = require('./routes');
 const cobrosRouter = require('./modules/cobros-router');
+const demoRouter = require('./modules/demo-router');
 const authRouter = require('./modules/auth-router');
 const clerkWebhookRouter = require('./modules/clerk-webhook-router');
-const { clerkAuth } = require('./middlewares/clerk-auth');
-const requireActiveUser = require('./middlewares/require-active-user');
+const autenticar = require('./middlewares/autenticar');
 const requerirPerfilCompleto = require('./middlewares/require-complete-profile');
 const notFound = require('./middlewares/not-found');
 const errorHandler = require('./middlewares/error-handler');
@@ -128,7 +128,17 @@ app.use('/auth', authLimiter, authRouter);
 // ── API protegida ─────────────────────────────────────────────────────────────
 app.use('/api/cobros', cobrosRouter.cobros);
 app.use('/api/transferencias', cobrosRouter.transferencias);
-app.use('/api', clerkAuth, requireActiveUser, requerirPerfilCompleto, routes);
+
+// El único endpoint público de la API: por acá entra el que escaneó el QR de
+// prueba y todavía no es nadie. Va antes de la cadena de autenticación, igual
+// que los cobros, porque justamente no tiene con qué autenticarse.
+app.use('/api/demo', demoRouter.publico);
+
+// `autenticar` acepta las dos credenciales —el token de Clerk y el de una
+// sesión de prueba— y en los dos casos deja `req.usuarioActual` con la misma
+// forma, así que de acá para abajo nada se entera de la diferencia.
+app.use('/api/demo', autenticar, requerirPerfilCompleto, demoRouter.privado);
+app.use('/api', autenticar, requerirPerfilCompleto, routes);
 
 app.use(notFound);
 app.use(errorHandler);

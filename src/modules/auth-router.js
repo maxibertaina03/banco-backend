@@ -3,6 +3,8 @@ const { z } = require('zod');
 const validate = require('../middlewares/validate');
 const asyncHandler = require('../utils/async-handler');
 const { clerkAuth, extraerIdUsuarioDeClerk } = require('../middlewares/clerk-auth');
+const autenticar = require('../middlewares/autenticar');
+const demoService = require('./demo-service');
 const authService = require('./auth-service');
 const centralBankService = require('./central-bank-service');
 const { uuidLike } = require('../utils/schemas');
@@ -98,9 +100,11 @@ router.post(
  */
 router.get(
   '/perfil',
-  clerkAuth,
+  autenticar,
   asyncHandler(async (req, res) => {
-    const clerkId = extraerIdUsuarioDeClerk(req.auth);
+    // En una sesión de prueba no hay token de Clerk que decodificar: el
+    // clerk_id sintético lo trae `req.usuarioActual`, que `autenticar` ya armó.
+    const clerkId = req.esDemo ? req.usuarioActual.clerk_id : extraerIdUsuarioDeClerk(req.auth);
 
     const perfil = await authService.obtenerPerfilDeUsuario(clerkId);
 
@@ -181,9 +185,16 @@ router.patch(
  */
 router.post(
   '/logout',
-  clerkAuth,
-  asyncHandler(async (_req, res) => {
-    res.json({ message: 'Sesión cerrada.' });
+  autenticar,
+  asyncHandler(async (req, res) => {
+    // Para un cliente real esto es simbólico: el JWT lo revoca Clerk. Para una
+    // sesión de prueba, en cambio, cerrar sesión es el momento en que hay que
+    // borrar todo lo que el visitante hizo, que es lo que pide la consigna.
+    if (req.esDemo) {
+      await demoService.borrarSesion(req.usuarioActual.persona_id);
+      return res.json({ message: 'Sesión de prueba cerrada. No quedó ningún dato.' });
+    }
+    return res.json({ message: 'Sesión cerrada.' });
   })
 );
 
