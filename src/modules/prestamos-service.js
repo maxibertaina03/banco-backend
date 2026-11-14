@@ -112,7 +112,7 @@ function createPrestamosService({
     // se acredita solo o si queda esperando a que un gerente lo revise. Antes
     // el cliente con mala situación recibía un 403 y ahí terminaba todo, sin
     // que nadie del banco pudiera mirar el caso.
-    const riesgo = await evaluarRiesgoParaSolicitud(dni, environment);
+    const riesgo = await evaluarRiesgoParaSolicitud(dni, environment, usuarioActual);
     const requiereRevision = !riesgo.aprobadoAutomaticamente;
 
     const simulacion = calculo.simularPrestamo({ capital, cuotas, tna: tnaFinal, fechaOtorgamiento: fecha });
@@ -200,9 +200,12 @@ function createPrestamosService({
    *  - El Banco Central no responde → también a revisión. Otorgar a ciegas
    *    sería peor que hacer esperar.
    */
-  async function evaluarRiesgoParaSolicitud(dni, environment) {
+  async function evaluarRiesgoParaSolicitud(dni, environment, usuarioActual) {
     try {
-      const { situacion } = await riesgoCrediticio.consultarSituacion(dni, environment);
+      // En una sesión de prueba esto resuelve contra el Central simulado, que
+      // devuelve situación 1: el visitante puede pedir un préstamo y que se le
+      // apruebe solo, sin quedar esperando a un gerente de verdad.
+      const { situacion } = await riesgoCrediticio.consultarSituacion(dni, environment, usuarioActual);
       return {
         situacion,
         aprobadoAutomaticamente: situacion < SITUACION_QUE_EXIGE_REVISION,

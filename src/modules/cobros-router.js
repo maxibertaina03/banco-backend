@@ -9,6 +9,8 @@ const createIdempotency = require('../middlewares/idempotency');
 const asyncHandler = require('../utils/async-handler');
 const HttpError = require('../utils/http-error');
 const requerirPerfilCompleto = require('../middlewares/require-complete-profile');
+const { PREFIJO_TOKEN } = require('../modules/demo-service');
+const autenticarDemo = require('../middlewares/autenticar');
 const { Dinero } = require('../utils/dinero');
 
 const MAX_QR_AMOUNT = 1_000_000;
@@ -28,12 +30,35 @@ function crearRouter() {
   const transferencias = express.Router();
   const idempotency = createIdempotency(pool);
 
+  // Una sesión de prueba entra por otra puerta: no tiene token de Clerk, así
+  // que el `clerkMiddleware` de abajo la rechazaría y el botón "Cobrar" del
+  // portal le daría error. `autenticar` le arma el `req.usuarioActual` y el
+  // resto del módulo sigue igual, porque sólo lee `persona_id` e `id`.
+  function entradaDePrueba(req, res, next) {
+    const cabecera = req.headers.authorization || '';
+    if (!cabecera.startsWith(`Bearer ${PREFIJO_TOKEN}`)) return next();
+    return autenticarDemo(req, res, next);
+  }
+
   for (const router of [cobros, transferencias]) {
-    router.use(RATE_LIMIT, clerkQrMiddleware, (req, res, next) => {
-      const auth = getAuth(req);
-      if (!auth.userId) return res.status(401).json({ error: 'Iniciá sesión para continuar.' });
-      return next();
-    }, requireActiveUser, requerirPerfilCompleto);
+    // Con sesión de prueba, `entradaDePrueba` ya dejó el usuarioActual armado y
+    // los tres pasos de Clerk se saltean. Con sesión normal, no hace nada y la
+    // cadena de siempre corre intacta.
+    const salvoEnPrueba = (middleware) => (req, res, next) =>
+      req.esDemo ? next() : middleware(req, res, next);
+
+    router.use(
+      RATE_LIMIT,
+      entradaDePrueba,
+      salvoEnPrueba(clerkQrMiddleware),
+      salvoEnPrueba((req, res, next) => {
+        const auth = getAuth(req);
+        if (!auth.userId) return res.status(401).json({ error: 'Iniciá sesión para continuar.' });
+        return next();
+      }),
+      salvoEnPrueba(requireActiveUser),
+      requerirPerfilCompleto
+    );
   }
 
   const crearSchema = z.object({
@@ -68,6 +93,10 @@ function crearRouter() {
   });
 
   const exigirReverificacion = asyncHandler(async (req, res, next) => {
+    // Una sesión de prueba no tiene identidad en Clerk que revalidar, así que
+    // no hay nada que pedirle. Tampoco hace falta: no hay plata real en juego.
+    if (req.esDemo) return next();
+
     const auth = getAuth(req);
     if (auth.has({ reverification: 'strict' })) return next();
 
@@ -295,7 +324,7 @@ function crearRouter() {
 
         const cuentaIds = [cuentaOrigenId, cobro.cuenta_destino_id].sort();
         const cuentasResult = await client.query(
-          `SELECT c.*, p.nombre, p.apellido
+          `SELECT c.*, p.nombre, p.apellido, p.es_demo
              FROM cuentas c JOIN personas p ON p.id = c.persona_id
             WHERE c.id = ANY($1::uuid[])
             ORDER BY c.id
@@ -309,6 +338,13 @@ function crearRouter() {
 
         if (origen.persona_id === destino.persona_id) {
           throw new HttpError(400, 'No podés pagar un QR de tu propia cuenta.');
+        }
+        // Los dos mundos no se tocan tampoco por acá. Durante una presentación
+        // es perfectamente posible que alguien le muestre a la sesión de prueba
+        // el QR de un cliente real: si se pagara, esa plata entraría de verdad.
+        // 404 y no 403, para no confirmar que ese cobro existe.
+        if (Boolean(origen.es_demo) !== Boolean(destino.es_demo)) {
+          throw new HttpError(404, 'No encontramos ese cobro.');
         }
         if (!origen.activa || !destino.activa || origen.moneda !== 'ARS' || destino.moneda !== 'ARS') {
           throw new HttpError(400, 'Las cuentas del cobro no están disponibles para operar en pesos.');

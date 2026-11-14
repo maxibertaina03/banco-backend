@@ -16,6 +16,7 @@
 
 const HttpError = require('../utils/http-error');
 const realLogger = require('../utils/logger');
+const { crearSelectorDeCentral } = require('./el-central');
 const realCentralBankService = require('./central-bank-service');
 
 const SITUACIONES = {
@@ -31,6 +32,9 @@ const SITUACION_MINIMA_BLOQUEANTE = 3;
 
 function createRiesgoCrediticio({
   centralBankService = realCentralBankService,
+  // Una sesión de prueba consulta un Central simulado: su DNI es inventado y
+  // preguntarle al Central real por él sería ensuciar un sistema compartido.
+  elCentral = crearSelectorDeCentral({ real: centralBankService }),
   logger = realLogger,
 } = {}) {
   /**
@@ -44,8 +48,8 @@ function createRiesgoCrediticio({
    *
    * @returns {Promise<{situacion, descripcion, deudas, bancos_acreedores}>}
    */
-  async function consultarSituacion(dni, environment) {
-    const datos = await centralBankService.consultarSituacionCrediticia(dni, environment);
+  async function consultarSituacion(dni, environment, usuarioActual) {
+    const datos = await elCentral(usuarioActual).consultarSituacionCrediticia(dni, environment);
 
     const situacion = Number(datos?.situacion) || 1;
     const deudas = Array.isArray(datos?.deudas) ? datos.deudas : [];
@@ -71,11 +75,11 @@ function createRiesgoCrediticio({
    * @param {string} operacion  Qué se está intentando, para el mensaje de error.
    * @param {string} [environment]
    */
-  async function verificarPuedeOperar(dni, operacion, environment) {
+  async function verificarPuedeOperar(dni, operacion, environment, usuarioActual) {
     let resultado;
 
     try {
-      resultado = await consultarSituacion(dni, environment);
+      resultado = await consultarSituacion(dni, environment, usuarioActual);
     } catch (error) {
       logger.warn(
         { err: error, dni, operacion, subsystem: 'riesgo-crediticio' },

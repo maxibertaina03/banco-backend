@@ -14,6 +14,7 @@
 
 const realPool = require('../db/pool');
 const realCentralBankService = require('./central-bank-service');
+const { crearSelectorDeCentral } = require('./el-central');
 const realRiesgoCrediticio = require('./riesgo-crediticio');
 const { escribirLogDeAuditoria: realEscribirLog } = require('../utils/audit');
 const { generarNumeroDeCuentaLocal } = require('./central-bank/central-bank-helpers');
@@ -27,6 +28,8 @@ function createCuentasService({
   centralBankService = realCentralBankService,
   riesgoCrediticio = realRiesgoCrediticio,
   escribirLogDeAuditoria = realEscribirLog,
+  // Ver `el-central.js`: una sesión de prueba no sale al Central real.
+  elCentral = crearSelectorDeCentral({ real: centralBankService }),
 } = {}) {
   async function enTransaccionDeBd(fn) {
     const client = await pool.connect();
@@ -88,11 +91,11 @@ function createCuentasService({
     }
 
     // Chequeo crediticio. Situación 3 o peor tira 403 desde acá.
-    await riesgoCrediticio.verificarPuedeOperar(persona.dni, 'abrir la cuenta', environment);
+    await riesgoCrediticio.verificarPuedeOperar(persona.dni, 'abrir la cuenta', environment, usuarioActual);
 
     // El CBU lo genera el Banco Central, así que se le pide antes de escribir
     // nada local. Para ARS siempre devuelve 200 con el CBU que ya existe.
-    const respuestaCentral = await centralBankService.abrirCuentaCentral({
+    const respuestaCentral = await elCentral(usuarioActual).abrirCuentaCentral({
       dni: persona.dni,
       moneda,
       environment,
