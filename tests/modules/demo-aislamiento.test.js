@@ -123,6 +123,19 @@ describe('el demo no sale al Banco Central', () => {
     expect(centralReal.crearTransaccion).not.toHaveBeenCalled();
   });
 
+  it('tampoco sale a buscar el nombre del banco destino', async () => {
+    // Esto se escapó una vez: `nombreDeBancoDeCbu` se llama FUERA de la
+    // transacción, al final de la transferencia, y su call site no le pasaba el
+    // usuario. El try/catch de esa función se tragaba el error, así que no se
+    // notaba: la única señal era una llamada saliente al ambiente compartido.
+    const { service, centralReal, centralSimulado } = armado;
+    await transferir(service, { origen: CUENTA_DEMO, usuarioActual: visitante, cbuDestino: '0080000000000000000009' })
+      .catch(() => {});
+
+    expect(centralReal.getBankByCode).not.toHaveBeenCalled();
+    expect(centralSimulado.getBankByCode).toHaveBeenCalled();
+  });
+
   it('la de un cliente real sí va al Central de verdad', async () => {
     const otro = armar({ origen: CUENTA_REAL, destino: null });
     await transferir(otro.service, { origen: CUENTA_REAL, usuarioActual: cliente, cbuDestino: '0080000000000000000009' })
