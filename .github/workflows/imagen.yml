@@ -1,0 +1,60 @@
+name: Imagen
+
+# Construye la imagen de Docker y la publica en el registro de GitHub.
+#
+# Por qué existe: antes el droplet clonaba los repos y compilaba ahí. Con 1 GB
+# de RAM eso dejaba la máquina sin aire varios minutos —tanto que ni se podía
+# entrar por SSH mientras duraba— y además obligaba a tener las claves y el
+# código fuente en el servidor. Ahora la imagen se arma acá, donde sobra
+# memoria, y el droplet sólo la baja ya hecha.
+
+on:
+  push:
+    branches: [main]
+    # La documentación no cambia la imagen: no vale la pena reconstruirla.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  # Para poder reconstruir a mano sin tener que pushear nada.
+  workflow_dispatch:
+
+concurrency:
+  group: imagen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Lo que le permite escribir en ghcr.io sin un token propio: el
+      # GITHUB_TOKEN que la propia action genera alcanza.
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Entrar al registro de GitHub
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # Dos etiquetas: `latest` es la que usa el droplet, y el SHA queda
+          # para poder volver atrás a una versión concreta si algo sale mal.
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/banco-backend:latest
+            ghcr.io/${{ github.repository_owner }}/banco-backend:${{ github.sha }}
+          # La caché vive en el propio registro: el segundo build reusa las
+          # capas de npm ci y baja de minutos a segundos.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
