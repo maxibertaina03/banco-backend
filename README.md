@@ -58,8 +58,10 @@ npm ci
 cp .env.example .env
 # Editar .env con tus credenciales
 
-# 4. Base de datos
-npm run db:setup          # corre schema.sql + seed.sql
+# 4. Base de datos (base nueva)
+npm run db:setup          # corre schema.sql + migración demo + seed.sql
+# En una base existente, aplica sólo el schema aditivo del modo demo:
+npm run db:demo
 # Aplicar migraciones manualmente (no se aplican automático):
 psql "$DATABASE_URL" -f migrations/20260527_idempotency_keys.sql
 
@@ -111,9 +113,10 @@ CORS_ORIGINS=http://localhost:5173,https://miapp.com   # coma-separado o '*' (no
 | `npm test` | Corre los 81 tests con Vitest una vez |
 | `npm run test:watch` | Tests en modo watch |
 | `npm run test:ui` | UI gráfica de tests |
-| `npm run db:setup` | Ejecuta `schema.sql` + `seed.sql` (idempotente) |
-| `npm run db:schema` | Solo el schema |
+| `npm run db:setup` | Ejecuta `schema.sql`, la migración demo y `seed.sql` (base nueva) |
+| `npm run db:schema` | Ejecuta el schema y la migración demo |
 | `npm run db:seed` | Solo el seed |
+| `npm run db:demo` | Aplica de forma idempotente el schema del modo demo a una base existente |
 
 ---
 

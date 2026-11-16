@@ -18,7 +18,14 @@ function createRecargasService({
   proveedores = createProveedoresClient(),
   escribirLogDeAuditoria = realEscribirLog,
 } = {}) {
-  async function listarOperadoras() {
+  function exigirSesionReal(usuarioActual) {
+    if (usuarioActual?.es_demo) {
+      throw new HttpError(403, 'Las operaciones con proveedores externos no están disponibles en modo prueba.');
+    }
+  }
+
+  async function listarOperadoras(usuarioActual = null) {
+    exigirSesionReal(usuarioActual);
     return proveedores.listarOperadoras();
   }
 
@@ -31,6 +38,8 @@ function createRecargasService({
     ipAddress,
     idempotencyKey = null,
   }) {
+    exigirSesionReal(usuarioActual);
+
     // El monto se valida contra el catálogo ANTES de tocar la cuenta o al
     // proveedor: es una regla conocida y no hace falta gastar una llamada para
     // que nos la rechacen.

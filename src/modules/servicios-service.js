@@ -45,12 +45,20 @@ function createServiciosService({
   proveedores = createProveedoresClient(),
   escribirLogDeAuditoria = realEscribirLog,
 } = {}) {
-  async function listarEmpresas(rubro = null) {
+  function exigirSesionReal(usuarioActual) {
+    if (usuarioActual?.es_demo) {
+      throw new HttpError(403, 'Las operaciones con proveedores externos no están disponibles en modo prueba.');
+    }
+  }
+
+  async function listarEmpresas(rubro = null, usuarioActual = null) {
+    exigirSesionReal(usuarioActual);
     return proveedores.listarEmpresas(rubro);
   }
 
   /** Un cliente al día devuelve la lista vacía, no un 404: existe, sólo que no debe nada. */
-  async function consultarDeuda({ empresaId, numeroCliente }) {
+  async function consultarDeuda({ empresaId, numeroCliente, usuarioActual }) {
+    exigirSesionReal(usuarioActual);
     const [empresas, deuda] = await Promise.all([
       proveedores.listarEmpresas(),
       proveedores.consultarDeuda(empresaId, numeroCliente),
@@ -76,6 +84,8 @@ function createServiciosService({
     ipAddress,
     idempotencyKey = null,
   }) {
+    exigirSesionReal(usuarioActual);
+
     // 1. La factura y su monto salen del proveedor, antes de tocar la cuenta.
     const deuda = await proveedores.consultarDeuda(empresaId, numeroCliente);
     const factura = (deuda.facturas || []).find((f) => f.id === facturaId);

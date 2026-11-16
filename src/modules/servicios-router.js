@@ -32,7 +32,7 @@ router.get(
   '/empresas',
   validate(empresasQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
-    res.json(await serviciosService.listarEmpresas(req.query.rubro ?? null));
+    res.json(await serviciosService.listarEmpresas(req.query.rubro ?? null, req.usuarioActual));
   })
 );
 
@@ -45,6 +45,7 @@ router.get(
       await serviciosService.consultarDeuda({
         empresaId: req.params.empresaId,
         numeroCliente: req.query.numero_cliente,
+        usuarioActual: req.usuarioActual,
       })
     );
   })

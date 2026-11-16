@@ -5,7 +5,7 @@
 -- maqueta. El aislamiento sale del scoping por persona_id que ya tiene todo el
 -- backend; lo único que hace falta agregar es por dónde entra y cómo se limpia.
 --
--- Revisar y aplicar en Supabase antes de habilitar los endpoints.
+-- Para una base existente: npm run db:demo.
 
 -- Marca para que las personas de prueba no se mezclen en los listados del
 -- personal del banco, los reportes ni la sincronización con el Banco Central.
@@ -15,7 +15,7 @@ ALTER TABLE personas ADD COLUMN IF NOT EXISTS es_demo BOOLEAN NOT NULL DEFAULT F
 -- un puñado, así que indexar sólo esas alcanza y no engorda el índice.
 CREATE INDEX IF NOT EXISTS idx_personas_demo ON personas(id) WHERE es_demo;
 
-CREATE TABLE demo_sesiones (
+CREATE TABLE IF NOT EXISTS demo_sesiones (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   -- Sólo el sha256 del token. La base nunca guarda algo con lo que se pueda
   -- entrar: ni un volcado del dump sirve para abrir una sesión.
@@ -30,8 +30,21 @@ CREATE TABLE demo_sesiones (
 
 -- Por acá entra el middleware de autenticación en cada request, así que la
 -- busca por hash tiene que ser barata.
-CREATE INDEX idx_demo_sesiones_vivas ON demo_sesiones(expira_at) WHERE cerrada_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_demo_sesiones_vivas ON demo_sesiones(expira_at) WHERE cerrada_at IS NULL;
 
 ALTER TABLE demo_sesiones ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "deny_direct_access" ON demo_sesiones
-  AS RESTRICTIVE FOR ALL USING (false) WITH CHECK (false);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_policies
+     WHERE schemaname = 'public'
+       AND tablename = 'demo_sesiones'
+       AND policyname = 'deny_direct_access'
+  ) THEN
+    EXECUTE 'CREATE POLICY "deny_direct_access" ON demo_sesiones
+      AS RESTRICTIVE FOR ALL USING (false) WITH CHECK (false)';
+  END IF;
+END
+$$;

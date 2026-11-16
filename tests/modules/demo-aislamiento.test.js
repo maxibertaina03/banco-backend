@@ -121,6 +121,7 @@ describe('el demo no sale al Banco Central', () => {
     expect(centralSimulado.crearTransaccion).toHaveBeenCalled();
     // Lo que de verdad importa: ni una llamada al ambiente compartido.
     expect(centralReal.crearTransaccion).not.toHaveBeenCalled();
+    expect(centralReal.getBankByCode).not.toHaveBeenCalled();
   });
 
   it('la de un cliente real sí va al Central de verdad', async () => {

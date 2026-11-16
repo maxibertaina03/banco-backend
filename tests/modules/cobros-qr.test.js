@@ -14,12 +14,15 @@
 
 import { describe, expect, it } from 'vitest';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { resolve, sep } from 'node:path';
 // En Node 18 `crypto` no es global.
 import { randomUUID } from 'node:crypto';
 import express from 'express';
 
 const require_ = createRequire(import.meta.url);
-const RAIZ = new URL('../../', import.meta.url).pathname;
+const RAIZ = fileURLToPath(new URL('../../', import.meta.url));
+const SRC = resolve(RAIZ, 'src') + sep;
 
 // `src/config/env.js` se lee al cargar el router: sin DATABASE_URL explota, y
 // sin CLERK_PUBLISHABLE_KEY el router contesta 503 a todo. No se conecta a
@@ -42,10 +45,15 @@ function sembrar(ruta, exports) {
  * Un cliente de pg de mentira. Responde lo que cada consulta del router
  * necesita y anota todo, para después poder afirmar qué se ejecutó.
  */
-function armarBase({ montoDelCobro, limiteDeTransferencia, estadoDelCobro = 'pendiente' }) {
+function armarBase({
+  montoDelCobro,
+  limiteDeTransferencia,
+  estadoDelCobro = 'pendiente',
+  qrPropioDemo = false,
+}) {
   const ejecutadas = [];
 
-  const cuenta = (id, personaId) => ({
+  const cuenta = (id, personaId, esDemo = false) => ({
     id,
     persona_id: personaId,
     tipo_cuenta_id: TIPO_CAJA_DE_AHORRO,
@@ -55,6 +63,7 @@ function armarBase({ montoDelCobro, limiteDeTransferencia, estadoDelCobro = 'pen
     cbu: `006000193011122200040${id.length}`,
     nombre: 'Quien',
     apellido: 'Sea',
+    es_demo: esDemo,
   });
 
   const query = async (sqlCrudo, params) => {
@@ -67,7 +76,7 @@ function armarBase({ montoDelCobro, limiteDeTransferencia, estadoDelCobro = 'pen
         rowCount: 1,
         rows: [{
           id: 'cobro-1',
-          cuenta_destino_id: CUENTA_COBRADOR,
+          cuenta_destino_id: qrPropioDemo ? CUENTA_PAGADOR : CUENTA_COBRADOR,
           monto: montoDelCobro,
           estado: estadoDelCobro,
           expira_at: new Date(Date.now() + 600_000).toISOString(),
@@ -76,6 +85,12 @@ function armarBase({ montoDelCobro, limiteDeTransferencia, estadoDelCobro = 'pen
     }
     if (/SELECT id FROM cuentas WHERE persona_id/i.test(sql)) {
       return { rowCount: 1, rows: [{ id: CUENTA_PAGADOR }] };
+    }
+    if (/FROM cuentas c JOIN personas p.*WHERE c\.id = \$1 AND c\.persona_id = \$2/i.test(sql)) {
+      return {
+        rowCount: 1,
+        rows: [cuenta(CUENTA_PAGADOR, PERSONA_PAGADOR, true)],
+      };
     }
     if (/FROM cuentas c JOIN personas p/i.test(sql)) {
       return {
@@ -113,10 +128,10 @@ function armarBase({ montoDelCobro, limiteDeTransferencia, estadoDelCobro = 'pen
   return { pool, ejecutadas };
 }
 
-function montarRouter(base) {
+function montarRouter(base, { demo = false } = {}) {
   // Cada test necesita el router recién cargado, con SUS dobles.
   for (const id of Object.keys(require_.cache)) {
-    if (id.startsWith(RAIZ + 'src/')) delete require_.cache[id];
+    if (id.startsWith(SRC)) delete require_.cache[id];
   }
 
   sembrar('@clerk/express', {
@@ -128,6 +143,15 @@ function montarRouter(base) {
   sembrar(RAIZ + 'src/db/pool.js', base.pool);
   sembrar(RAIZ + 'src/middlewares/require-active-user.js', (req, _res, next) => {
     req.usuarioActual = { id: 'usuario-1', persona_id: PERSONA_PAGADOR };
+    next();
+  });
+  sembrar(RAIZ + 'src/middlewares/autenticar.js', (req, _res, next) => {
+    req.esDemo = demo;
+    req.usuarioActual = {
+      id: 'usuario-1',
+      persona_id: PERSONA_PAGADOR,
+      es_demo: demo,
+    };
     next();
   });
   sembrar(RAIZ + 'src/middlewares/require-complete-profile.js', (_req, _res, next) => next());
@@ -143,12 +167,14 @@ function montarRouter(base) {
   return app;
 }
 
-async function pagar(app, { clave = randomUUID() } = {}) {
+async function pagar(app, { clave = randomUUID(), demo = false } = {}) {
   const server = app.listen(0);
   try {
+    const headers = { 'Content-Type': 'application/json', 'Idempotency-Key': clave };
+    if (demo) headers.Authorization = 'Bearer orbdemo_test';
     const respuesta = await fetch(`http://127.0.0.1:${server.address().port}/api/transferencias`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': clave },
+      headers,
       body: JSON.stringify({ cobro_id: '11111111-1111-4111-8111-111111111111' }),
     });
     return { status: respuesta.status, body: await respuesta.json() };
@@ -174,6 +200,7 @@ async function crearCobro(app, monto) {
 const seCreoElCobro = (ejecutadas) => ejecutadas.some((q) => /INSERT INTO cobros/i.test(q.sql));
 
 const seDebito = (ejecutadas) => ejecutadas.some((q) => /UPDATE cuentas SET saldo = saldo -/i.test(q.sql));
+const seAcredito = (ejecutadas) => ejecutadas.some((q) => /UPDATE cuentas SET saldo = saldo \+/i.test(q.sql));
 
 describe('pago de un cobro por QR', () => {
   it('rechaza un monto que supera el límite de la cuenta, y no toca el saldo', async () => {
@@ -189,9 +216,9 @@ describe('pago de un cobro por QR', () => {
 
   it('deja pasar un monto dentro del límite', async () => {
     const base = armarBase({ montoDelCobro: '400000.00', limiteDeTransferencia: '500000.00' });
-    const { status } = await pagar(montarRouter(base));
+    const { status, body } = await pagar(montarRouter(base));
 
-    expect(status).toBe(201);
+    expect(status, JSON.stringify(body)).toBe(201);
     expect(seDebito(base.ejecutadas)).toBe(true);
   });
 
@@ -211,6 +238,22 @@ describe('pago de un cobro por QR', () => {
 
     expect(status).toBe(201);
     expect(seDebito(base.ejecutadas)).toBe(true);
+  });
+
+  it('la demo puede probar su propio QR sin acreditar una cuenta de destino', async () => {
+    const base = armarBase({
+      montoDelCobro: '1000.00',
+      limiteDeTransferencia: '500000.00',
+      qrPropioDemo: true,
+    });
+    const { status } = await pagar(montarRouter(base, { demo: true }), { demo: true });
+
+    expect(status).toBe(201);
+    expect(seDebito(base.ejecutadas)).toBe(true);
+    expect(seAcredito(base.ejecutadas)).toBe(false);
+    const insert = base.ejecutadas.find((q) => /INSERT INTO transacciones/i.test(q.sql));
+    expect(insert.params[2]).toBeNull();
+    expect(insert.params[4]).toBe('Pago QR de prueba');
   });
 
   it('un QR ya pagado no se puede volver a pagar', async () => {

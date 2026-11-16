@@ -366,7 +366,7 @@ function createTransaccionesService({
 
     // Fuera de la transacción de BD: esperar al Central por un nombre no debe
     // mantenerla abierta.
-    const bancoDestino = await nombreDeBancoDeCbu(resultado.effectiveDestinationCbu);
+    const bancoDestino = await nombreDeBancoDeCbu(resultado.effectiveDestinationCbu, usuarioActual);
     return { ...resultado, monedaOrigen, bancoDestino };
   }
 

@@ -77,6 +77,21 @@ const debito = (escrituras) => escrituras.find(([op]) => op === 'debito');
 describe('pago de servicios', () => {
   const pago = { cuenta_id: 'c-ars', empresa_id: 'edenor', numero_cliente: '123456789', factura_id: FACTURA.id };
 
+  it('no contacta al proveedor ni mueve saldo desde una sesión demo', async () => {
+    const { servicios, proveedor, escrituras } = armar();
+    const usuarioActual = { persona_id: 'p1', roles: ['cliente'], es_demo: true };
+
+    await expect(servicios.listarEmpresas(null, usuarioActual)).rejects.toMatchObject({ status: 403 });
+    await expect(servicios.consultarDeuda({ empresaId: 'edenor', numeroCliente: '123456789', usuarioActual }))
+      .rejects.toMatchObject({ status: 403 });
+    await expect(servicios.pagarFactura({ ...pago, usuarioActual })).rejects.toMatchObject({ status: 403 });
+
+    expect(proveedor.listarEmpresas).not.toHaveBeenCalled();
+    expect(proveedor.consultarDeuda).not.toHaveBeenCalled();
+    expect(proveedor.pagarFactura).not.toHaveBeenCalled();
+    expect(escrituras).toEqual([]);
+  });
+
   it('debita el monto de la factura y devuelve el comprobante', async () => {
     const { servicios, escrituras } = armar();
     const r = await servicios.pagarFactura({ ...pago });
@@ -175,6 +190,18 @@ describe('pago de servicios', () => {
 
 describe('recargas', () => {
   const recarga = { cuenta_id: 'c-ars', operadora_id: 'movistar', numero: '3514123456', monto: 1000 };
+
+  it('no contacta a la operadora ni mueve saldo desde una sesión demo', async () => {
+    const { recargas, proveedor, escrituras } = armar();
+    const usuarioActual = { persona_id: 'p1', roles: ['cliente'], es_demo: true };
+
+    await expect(recargas.listarOperadoras(usuarioActual)).rejects.toMatchObject({ status: 403 });
+    await expect(recargas.recargar({ ...recarga, usuarioActual })).rejects.toMatchObject({ status: 403 });
+
+    expect(proveedor.listarOperadoras).not.toHaveBeenCalled();
+    expect(proveedor.recargar).not.toHaveBeenCalled();
+    expect(escrituras).toEqual([]);
+  });
 
   it('debita y registra el movimiento con su canal', async () => {
     const { recargas, escrituras } = armar();

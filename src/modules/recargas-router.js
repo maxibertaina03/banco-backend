@@ -22,8 +22,8 @@ const recargaSchema = z.object({
 
 router.get(
   '/operadoras',
-  asyncHandler(async (_req, res) => {
-    res.json(await recargasService.listarOperadoras());
+  asyncHandler(async (req, res) => {
+    res.json(await recargasService.listarOperadoras(req.usuarioActual));
   })
 );
 

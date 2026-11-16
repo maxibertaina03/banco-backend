@@ -229,7 +229,7 @@ function crearRouter() {
       try {
         const result = await pool.query(
           `SELECT co.id, co.monto, co.estado, co.expira_at, co.cuenta_destino_id,
-                  p.nombre, p.apellido
+                  c.persona_id, p.nombre, p.apellido, p.es_demo
              FROM cobros co
              JOIN cuentas c ON c.id = co.cuenta_destino_id
              JOIN personas p ON p.id = c.persona_id
@@ -237,7 +237,9 @@ function crearRouter() {
           [id]
         );
         const cobro = result.rows[0];
-        if (!cobro) throw new HttpError(404, 'No encontramos ese cobro.');
+        if (!cobro || Boolean(cobro.es_demo) !== Boolean(req.esDemo)) {
+          throw new HttpError(404, 'No encontramos ese cobro.');
+        }
 
         if (cobro.estado === 'pendiente' && new Date(cobro.expira_at) <= new Date()) {
           const vencido = await pool.query(
@@ -261,7 +263,9 @@ function crearRouter() {
         });
         res.json({
           id: cobro.id,
-          titular: [cobro.nombre, cobro.apellido].filter(Boolean).join(' ') || 'Titular de cuenta',
+          titular: req.esDemo && cobro.persona_id === req.usuarioActual.persona_id
+            ? 'Comercio de prueba'
+            : [cobro.nombre, cobro.apellido].filter(Boolean).join(' ') || 'Titular de cuenta',
           monto: cobro.monto,
           estado: cobro.estado,
           expira_at: cobro.expira_at,
@@ -318,35 +322,54 @@ function crearRouter() {
           );
         }
         const cuentaOrigenId = origenResult.rows[0]?.id;
-        if (cuentaOrigenId === cobro.cuenta_destino_id) {
+        const pagoQrPropioDemo = req.esDemo && cuentaOrigenId === cobro.cuenta_destino_id;
+        if (cuentaOrigenId === cobro.cuenta_destino_id && !pagoQrPropioDemo) {
           throw new HttpError(400, 'No podés pagar un QR de tu propia cuenta.');
         }
 
-        const cuentaIds = [cuentaOrigenId, cobro.cuenta_destino_id].sort();
-        const cuentasResult = await client.query(
-          `SELECT c.*, p.nombre, p.apellido, p.es_demo
-             FROM cuentas c JOIN personas p ON p.id = c.persona_id
-            WHERE c.id = ANY($1::uuid[])
-            ORDER BY c.id
-            FOR UPDATE OF c`,
-          [cuentaIds]
-        );
-        if (cuentasResult.rowCount !== 2) throw new HttpError(404, 'No encontramos una de las cuentas del cobro.');
-        const cuentas = new Map(cuentasResult.rows.map((cuenta) => [cuenta.id, cuenta]));
-        const origen = cuentas.get(cuentaOrigenId);
-        const destino = cuentas.get(cobro.cuenta_destino_id);
+        let origen;
+        let destino = null;
+        if (pagoQrPropioDemo) {
+          const cuentaResult = await client.query(
+            `SELECT c.*, p.nombre, p.apellido, p.es_demo
+               FROM cuentas c JOIN personas p ON p.id = c.persona_id
+              WHERE c.id = $1 AND c.persona_id = $2
+              FOR UPDATE OF c`,
+            [cuentaOrigenId, req.usuarioActual.persona_id]
+          );
+          origen = cuentaResult.rows[0];
+          if (!origen || !origen.es_demo) throw new HttpError(404, 'No encontramos ese cobro.');
+        } else {
+          const cuentaIds = [cuentaOrigenId, cobro.cuenta_destino_id].sort();
+          const cuentasResult = await client.query(
+            `SELECT c.*, p.nombre, p.apellido, p.es_demo
+               FROM cuentas c JOIN personas p ON p.id = c.persona_id
+              WHERE c.id = ANY($1::uuid[])
+              ORDER BY c.id
+              FOR UPDATE OF c`,
+            [cuentaIds]
+          );
+          if (cuentasResult.rowCount !== 2) throw new HttpError(404, 'No encontramos una de las cuentas del cobro.');
+          const cuentas = new Map(cuentasResult.rows.map((cuenta) => [cuenta.id, cuenta]));
+          origen = cuentas.get(cuentaOrigenId);
+          destino = cuentas.get(cobro.cuenta_destino_id);
+        }
 
-        if (origen.persona_id === destino.persona_id) {
+        if (!pagoQrPropioDemo && origen.persona_id === destino.persona_id) {
           throw new HttpError(400, 'No podés pagar un QR de tu propia cuenta.');
         }
         // Los dos mundos no se tocan tampoco por acá. Durante una presentación
         // es perfectamente posible que alguien le muestre a la sesión de prueba
         // el QR de un cliente real: si se pagara, esa plata entraría de verdad.
         // 404 y no 403, para no confirmar que ese cobro existe.
-        if (Boolean(origen.es_demo) !== Boolean(destino.es_demo)) {
+        if (!pagoQrPropioDemo && Boolean(origen.es_demo) !== Boolean(destino.es_demo)) {
           throw new HttpError(404, 'No encontramos ese cobro.');
         }
-        if (!origen.activa || !destino.activa || origen.moneda !== 'ARS' || destino.moneda !== 'ARS') {
+        if (
+          !origen.activa ||
+          origen.moneda !== 'ARS' ||
+          (!pagoQrPropioDemo && (!destino.activa || destino.moneda !== 'ARS'))
+        ) {
           throw new HttpError(400, 'Las cuentas del cobro no están disponibles para operar en pesos.');
         }
 
@@ -374,14 +397,24 @@ function crearRouter() {
           [cobro.monto, origen.id]
         );
         if (!debito.rowCount) throw new HttpError(422, 'No tenés saldo suficiente para esta transferencia.');
-        await client.query('UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2', [cobro.monto, destino.id]);
+        if (!pagoQrPropioDemo) {
+          await client.query('UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2', [cobro.monto, destino.id]);
+        }
         const inserted = await client.query(
           `INSERT INTO transacciones
              (tipo_transaccion_id, cuenta_origen_id, cuenta_destino_id, monto, descripcion,
               estado, canal, cbu_origen, cbu_destino)
-           VALUES ($1, $2, $3, $4, 'Pago por QR', 'completada', 'local', $5, $6)
+           VALUES ($1, $2, $3, $4, $5, 'completada', 'local', $6, $7)
            RETURNING id, monto, estado, created_at`,
-          [tipo.rows[0].id, origen.id, destino.id, cobro.monto, origen.cbu, destino.cbu]
+          [
+            tipo.rows[0].id,
+            origen.id,
+            destino?.id ?? null,
+            cobro.monto,
+            pagoQrPropioDemo ? 'Pago QR de prueba' : 'Pago por QR',
+            origen.cbu,
+            destino?.cbu ?? null,
+          ]
         );
         transaccion = inserted.rows[0];
         await client.query(

@@ -16,14 +16,15 @@ const pool = new Pool({
 const rootDir = path.resolve(__dirname, '..');
 const schemaPath = path.join(rootDir, 'schema.sql');
 const seedPath = path.join(rootDir, 'seed.sql');
+const demoMigrationPath = path.join(rootDir, 'prisma', 'migrations', '3_modo_demo', 'migration.sql');
 
 function parseMode() {
   const mode = process.argv[2] || 'all';
-  const validModes = new Set(['all', 'schema', 'seed']);
+  const validModes = new Set(['all', 'schema', 'seed', 'demo']);
 
   if (!validModes.has(mode)) {
     throw new Error(
-      `Modo no valido: ${mode}. Usa uno de estos valores: all, schema, seed.`
+      `Modo no valido: ${mode}. Usa uno de estos valores: all, schema, seed, demo.`
     );
   }
 
@@ -47,12 +48,18 @@ async function main() {
   const client = await pool.connect();
 
   try {
+    if (mode === 'demo') {
+      await runSqlFile(client, demoMigrationPath, 'migración del modo demo');
+      return;
+    }
+
     if (mode === 'seed') {
       await runSqlFile(client, seedPath, 'seed.sql');
       return;
     }
 
     await runSqlFile(client, schemaPath, 'schema.sql');
+    await runSqlFile(client, demoMigrationPath, 'migración del modo demo');
 
     if (mode === 'all') {
       await runSqlFile(client, seedPath, 'seed.sql');
